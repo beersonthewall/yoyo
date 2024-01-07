@@ -7,7 +7,7 @@
 
 *** DONE Empty UEFI bootloader
 
-*** TODO Empty bare-bones freestanding binary (no-std, no-main)
+*** DONE Empty bare-bones freestanding binary (no-std, no-main) for the kernelcargo-features = ["per-package-target"]
 - empty panic handler stuff too
 
 *** TODO Actual skeleton kernel builds

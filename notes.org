@@ -5,7 +5,7 @@
 *** DONE Setup skeleton builds using cargo workspaces
 **** DONE Peruse the Cargo book to figure out how to use workspaces
 
-*** TODO Empty UEFI bootloader
+*** DONE Empty UEFI bootloader
 
 *** TODO Empty bare-bones freestanding binary (no-std, no-main)
 - empty panic handler stuff too

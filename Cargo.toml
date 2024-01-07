@@ -1,0 +1,9 @@
+[workspace]
+members = ["bootloader", "kernel"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+authors = ["beersonthewall"]
+description = "One day I'll be a real operating system :)."
+

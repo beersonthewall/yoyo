@@ -1,0 +1,24 @@
+* Operating System Notes
+
+** Tasks
+*** DONE Init git repo
+*** DONE Setup skeleton builds using cargo workspaces
+**** DONE Peruse the Cargo book to figure out how to use workspaces
+
+*** TODO Empty UEFI bootloader
+
+*** TODO Empty bare-bones freestanding binary (no-std, no-main)
+- empty panic handler stuff too
+
+*** TODO Actual skeleton kernel builds
+- build {kernel, bootloader}
+- create GPT disk image that has a FAT filesystem (for UEFI)
+- Also need to include the kernel somewhere in the disk image
+- I guess at some path or rootfs? I don't know how this should work.
+  I also don't know how to figure out how this should work
+
+** Notes
+*** State of the repo
+Try not to leave the repo in a half-committed state. Makes it really hard to pick the project
+back up again. Find good stopping points and leave notes so it's easy to work on another day.
+

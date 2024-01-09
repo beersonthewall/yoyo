@@ -17,8 +17,64 @@
 - I guess at some path or rootfs? I don't know how this should work.
   I also don't know how to figure out how this should work
 
+  Okay so I think the plan is to have a GPT disk image, that has two partitions
+  One for the UEFI bootloader, and one for /boot (the kernel).
+
+  steps:
+  1) create file
+  2) GPT format the file with 2 partitions
+  3) create FAT image and write to the EFI partition
+  4) create some FS image and write to /boot partition my linux machine uses ext4,
+     but I think maybe I should just also use FAT because it's "Simple" (to implement)?
+
 ** Notes
 *** State of the repo
 Try not to leave the repo in a half-committed state. Makes it really hard to pick the project
 back up again. Find good stopping points and leave notes so it's easy to work on another day.
 
+*** Generating a GPT Disk Image
+Start by creating a raw disk image with dd:
+
+#+begin_src sh
+dd if=/dev/zero of=os.img bs=512 count=8192
+#+end_src
+
+This creates a 4 MB image.
+
+Then use gdisk to format it, the general sequence of commands being:
+o, n, n, w
+
+only changing the first new partition to have type 'ef00' (EFI).
+
+Use losetup to mount the image as a loopback device:
+#+begin_src sh
+losetup --offset (first block of target partition) --sizelimit size_of_partition /dev/loop0 os.img
+#+end_src
+
+mkdosfs -F 32 /dev/loop0
+
+sudo mount /dev/loop0 /mnt
+
+copy EFI applications to /mnt
+
+need efi/boot/ dir.
+application filename `bootx64.efi`
+
+umount /mnt
+losetup -d /dev/loop0
+
+Okay SO this was giving me so many issues, QEMU was failing to boot from any of the block devices
+passed when I ran commands using the '-drive' command.
+
+#+begin_src sh
+   qemu-system-x86_64 -bios OVMF_CODE.fd -enable-kvm -cpu qemu64 \
+		      -drive file=diskimage.dd,format=raw,if=ide
+#+end_src
+
+drive is supposed to be a wrapper around -blockdev and -device. However all I wanted was
+to add the disk image as an emulated hard drive so using the -hda flag was an immediate success
+where I had failed for hours previously.
+#+begin_src sh
+   qemu-system-x86_64 -bios OVMF_CODE.fd -enable-kvm -cpu qemu64 \
+		      -hda diskimage.dd
+#+end_src

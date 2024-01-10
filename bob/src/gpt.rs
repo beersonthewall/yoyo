@@ -1,7 +1,10 @@
+use std::fs::File;
+use std::prelude::*;
+use std::time::SystemTime;
 use crate::err::BobErr;
 
 pub struct DiskImgBuilder {
-    size: Option<usize>,
+    image_size: Option<usize>,
     output: Option<String>,
     partitions: Vec<Partition>,
 }
@@ -9,7 +12,7 @@ pub struct DiskImgBuilder {
 impl DiskImgBuilder {
     pub fn new() -> Self {
         Self {
-            size: None,
+            image_size: None,
             output: None,
             partitions: Vec::new(),
         }
@@ -17,7 +20,7 @@ impl DiskImgBuilder {
 
     /// Total size of the output disk image
     pub fn total_size(mut self, s: usize) -> Self {
-        self.size = Some(s);
+        self.image_size = Some(s);
         self
     }
 
@@ -35,7 +38,29 @@ impl DiskImgBuilder {
     }
 
     pub fn build(self) -> Result<(), BobErr> {
-        todo!("Actually build the disk image");
+	// Default to append the current time since UNIX EPOCH to avoid overwriting any old
+	// images using the default filename by accident.
+	let filename = if let Some(f) = self.output {
+	    f
+	} else {
+	    let suffix = SystemTime::now()
+		.duration_since(std::time::SystemTime::UNIX_EPOCH).unwrap()
+		.as_secs().to_string();
+	    format!("disk_image_{suffix}.img")
+	};
+	
+	let fd = File::options()
+	    .write(true)
+	    .create(true)
+	    .open(filename).map_err(BobErr::IO)?;
+
+	if let Some(image_size) = self.image_size {
+	    fd.set_len(image_size as u64).map_err(BobErr::IO)?;
+	} else {
+	    return Err(BobErr::MissingArgument);
+	}
+
+	Ok(())
     }
 }
 
@@ -77,7 +102,7 @@ impl PartitionBuilder {
 	self
     }
 
-    pub fn build(mut self) -> Result<Partition, BobErr> {
+    pub fn build(self) -> Result<Partition, BobErr> {
 	if self.pt.is_none() || self.start_offset.is_none() || self.end_offset.is_none() {
 	    return Err(BobErr::PartitionParse);
 	}

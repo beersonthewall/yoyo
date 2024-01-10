@@ -15,7 +15,9 @@ pub fn create_disk_image(create_matches: &ArgMatches) -> Result<(), BobErr> {
     }
 
     if let Some(partitions) = create_matches.get_many::<Partition>("partition") {
-	todo!("parse the raw partition information into partition structs");
+	for p in partitions {
+	    img_builder = img_builder.partition(*p);
+	}
     }
 
     img_builder.build()

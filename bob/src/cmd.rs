@@ -1,5 +1,5 @@
 use crate::err::BobErr;
-use crate::gpt::DiskImgBuilder;
+use crate::gpt::{DiskImgBuilder, Partition};
 use clap::ArgMatches;
 
 /// Creates a disk image from the provided argument matches.
@@ -14,8 +14,7 @@ pub fn create_disk_image(create_matches: &ArgMatches) -> Result<(), BobErr> {
         img_builder = img_builder.total_size(*size);
     }
 
-    if let Some(partitions) = create_matches.get_many::<String>("partitions") {
-	let _raw_partition_specs = partitions.map(|v| v.as_str()).collect::<Vec<_>>();
+    if let Some(partitions) = create_matches.get_many::<Partition>("partition") {
 	todo!("parse the raw partition information into partition structs");
     }
 

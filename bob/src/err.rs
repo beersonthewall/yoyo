@@ -1,2 +1,4 @@
 #[derive(Debug)]
-pub enum BobErr {}
+pub enum BobErr {
+    PartitionParse,
+}

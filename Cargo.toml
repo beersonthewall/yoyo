@@ -1,5 +1,5 @@
 [workspace]
-members = ["bootloader", "kernel"]
+members = [ "bob","bootloader", "kernel"]
 resolver = "2"
 
 [workspace.package]

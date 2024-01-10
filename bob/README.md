@@ -1,0 +1,3 @@
+# Bob (the builder)
+
+Utility for building GPT disk images (and formatting FAT filesystems). 

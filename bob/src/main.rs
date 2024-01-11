@@ -63,7 +63,9 @@ fn main() -> Result<(), BobErr> {
 		.about("Create a new disk image")
 		.args(&[
 		    arg!(-o --output <FILE> "Output filename"),
-		    arg!(-s --size <SIZE> "Total size of the desired disk image").value_parser(value_parser!(usize)),
+		    arg!(-s --size <SIZE> "Total size of the desired disk image")
+			.required(true)
+			.value_parser(value_parser!(usize)),
 		    Arg::new("partition").short('p').required(false)
 			.action(clap::ArgAction::Append)
 			.value_parser(PartitionParser {})

@@ -1,3 +1,4 @@
+use std::ffi::CString;
 use std::fs::File;
 use std::io::prelude::*;
 use std::time::SystemTime;
@@ -64,7 +65,7 @@ impl DiskImgBuilder {
 	}
 
 	write_protective_mbr_header(&mut f, self.image_size.unwrap())?;
-	write_partition_table(&mut f);
+	write_partition_table(&mut f, &self.partitions)?;
 
 	Ok(())
     }
@@ -147,11 +148,15 @@ fn write_protective_mbr_header(f: &mut File, size: usize) -> Result<(), BobErr> 
     Ok(())
 }
 
-fn write_partition_table(f: &mut File) -> Result<(), BobErr> {
+fn write_partition_table(f: &mut File, partitions: &Vec<Partition>) -> Result<(), BobErr> {
     let gpt_header = GptHeader::new();
     // TODO: populate the header
 
+    let partition_entries = partitions.iter().map(|p| GptPartitionEntry::from_partition(p)).collect::<Vec<_>>();
     f.write_all(&gpt_header.bytes()).map_err(BobErr::IO)?;
+    for p in partition_entries {
+	p.write(f)?;
+    }
 
     Ok(())
 }
@@ -258,9 +263,36 @@ impl GptHeader {
     }
 }
 
+struct GptPartitionEntry {
+    partition_type_guid: [u8;16],
+    unique_partition_guid: [u8;16],
+    starting_lba: u64,
+    ending_lba: u64,
+    attributes: u64,
+    partition_name: CString,
 }
 
+impl GptPartitionEntry {
 
+    fn from_partition(p: &Partition) -> Self {
+	Self {
+	    partition_type_guid: [0;16],
+	    unique_partition_guid: [0;16],
+	    starting_lba: 0,
+	    ending_lba: 0,
+	    attributes: 0,
+	    partition_name: CString::new("").expect("Cannot happen, does not contain null byte."),
+	}
     }
 
+    fn write(&self, f: &mut File) -> Result<(), BobErr> {
+	f.write_all(&self.partition_type_guid).map_err(BobErr::IO)?;
+	f.write_all(&self.unique_partition_guid).map_err(BobErr::IO)?;
+	f.write_all(&self.starting_lba.to_ne_bytes()).map_err(BobErr::IO)?;
+	f.write_all(&self.ending_lba.to_ne_bytes()).map_err(BobErr::IO)?;
+	f.write_all(&self.attributes.to_ne_bytes()).map_err(BobErr::IO)?;
+	f.write_all(&self.partition_name.as_bytes()).map_err(BobErr::IO)?;
+
+	Ok(())
+    }
 }

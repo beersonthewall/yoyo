@@ -220,20 +220,20 @@ impl GptHeader {
 
     fn bytes(&self) -> Vec<u8> {
 	let mut bytes = vec![0;92];
-	bytes[0..8].copy_from_slice(&u64_to_slice(self.signature));
-	bytes[8..12].copy_from_slice(&u32_to_slice(self.revision));
-	bytes[12..16].copy_from_slice(&u32_to_slice(self.header_sz));
-	bytes[16..20].copy_from_slice(&u32_to_slice(self.header_crc32));
-	bytes[20..24].copy_from_slice(&u32_to_slice(self.reserved));
-	bytes[24..32].copy_from_slice(&u64_to_slice(self.my_lba));
-	bytes[32..40].copy_from_slice(&u64_to_slice(self.alt_lba));
-	bytes[40..48].copy_from_slice(&u64_to_slice(self.first_usable_lba));
-	bytes[48..56].copy_from_slice(&u64_to_slice(self.last_usable_lba));
+	bytes[0..8].copy_from_slice(&self.signature.to_ne_bytes());
+	bytes[8..12].copy_from_slice(&self.revision.to_ne_bytes());
+	bytes[12..16].copy_from_slice(&self.header_sz.to_ne_bytes());
+	bytes[16..20].copy_from_slice(&self.header_crc32.to_ne_bytes());
+	bytes[20..24].copy_from_slice(&self.reserved.to_ne_bytes());
+	bytes[24..32].copy_from_slice(&self.my_lba.to_ne_bytes());
+	bytes[32..40].copy_from_slice(&self.alt_lba.to_ne_bytes());
+	bytes[40..48].copy_from_slice(&self.first_usable_lba.to_ne_bytes());
+	bytes[48..56].copy_from_slice(&self.last_usable_lba.to_ne_bytes());
 	bytes[56..72].copy_from_slice(&self.disk_guid);
-	bytes[72..80].copy_from_slice(&u64_to_slice(self.partition_entry_lba));
-	bytes[80..84].copy_from_slice(&u32_to_slice(self.num_partition_entries));
-	bytes[84..88].copy_from_slice(&u32_to_slice(self.partition_entry_sz));
-	bytes[88..92].copy_from_slice(&u32_to_slice(self.partition_entry_array_crc32));
+	bytes[72..80].copy_from_slice(&self.partition_entry_lba.to_ne_bytes());
+	bytes[80..84].copy_from_slice(&self.num_partition_entries.to_ne_bytes());
+	bytes[84..88].copy_from_slice(&self.partition_entry_sz.to_ne_bytes());
+	bytes[88..92].copy_from_slice(&self.partition_entry_array_crc32.to_ne_bytes());
 
 	bytes
     }
@@ -258,24 +258,9 @@ impl GptHeader {
     }
 }
 
-fn u32_to_slice(i: u32) -> [u8;4] {
-    let mut result = [0;4];
-    let mut i = i;
-    for ind in 0..4 {
-	result[ind] = (i & 0xFF) as u8;
-	i >>= 8;
-    }
-    result    
 }
 
-fn u64_to_slice(i: u64) -> [u8;8] {
-    let mut result = [0;8];
 
-    let mut i = i;
-    for ind in 0..8 {
-	result[ind] = (i & 0xFF) as u8;
-	i >>= 8;
     }
 
-    result
 }

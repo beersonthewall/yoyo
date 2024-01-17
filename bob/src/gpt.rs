@@ -133,17 +133,17 @@ fn write_protective_mbr_header(f: &mut File, size: usize) -> Result<(), BobErr> 
     let unused = [0;440 + 4 + 2];
     f.write_all(&unused).map_err(BobErr::IO)?;
 
-    let zero = PartitionRecord::new().bytes();
+    let zero = PartitionRecord::new();
     let mut first_record = PartitionRecord::new();
     first_record.starting_chs = [0x00, 0x02, 0x00];
     first_record.os_type = 0xEE;
     first_record.starting_lba = 0x00000001;
     first_record.size_in_lba = (size / 512) as u32;
 
-    f.write_all(&first_record.bytes()).map_err(BobErr::IO)?;
-    f.write_all(&zero).map_err(BobErr::IO)?;
-    f.write_all(&zero).map_err(BobErr::IO)?;
-    f.write_all(&zero).map_err(BobErr::IO)?;
+    first_record.write(f)?;
+    zero.write(f)?;
+    zero.write(f)?;
+    zero.write(f)?;
 
     Ok(())
 }
@@ -182,25 +182,14 @@ impl PartitionRecord {
 	}
     }
 
-    fn bytes(&self) -> Vec<u8> {
-	// TODO we can make this so we don't copy so much.
-	let mut bytes = vec![0;16];
-	bytes[0] = self.boot_indicator;
-	bytes[1..4].copy_from_slice(&self.starting_chs);
-	bytes[4] = self.os_type;
-	bytes[5..8].copy_from_slice(&self.ending_chs);
-
-	bytes[8] = (self.starting_lba & 0xFF) as u8;
-	bytes[9] = (self.starting_lba & (0xFF << 8)) as u8;
-	bytes[10] = (self.starting_lba & (0xFF << 16)) as u8;	
-	bytes[11] = (self.starting_lba & (0xFF << 24)) as u8;
-
-	bytes[12] = (self.size_in_lba & 0xFF) as u8;
-	bytes[13] = (self.size_in_lba & (0xFF << 8)) as u8;
-	bytes[14] = (self.size_in_lba & (0xFF << 16)) as u8;	
-	bytes[15] = (self.size_in_lba & (0xFF << 24)) as u8;
-
-	bytes
+    fn write(&self, f: &mut File) -> Result<(), BobErr> {
+	f.write_all(&self.boot_indicator.to_ne_bytes()).map_err(BobErr::IO)?;
+	f.write_all(&self.starting_chs).map_err(BobErr::IO)?;
+	f.write_all(&self.os_type.to_ne_bytes()).map_err(BobErr::IO)?;
+	f.write_all(&self.ending_chs).map_err(BobErr::IO)?;
+	f.write_all(&self.starting_lba.to_ne_bytes()).map_err(BobErr::IO)?;
+	f.write_all(&self.size_in_lba.to_ne_bytes()).map_err(BobErr::IO)?;
+	Ok(())
     }
 }
 

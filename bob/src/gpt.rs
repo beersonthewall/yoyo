@@ -153,7 +153,8 @@ fn write_partition_table(f: &mut File, partitions: &Vec<Partition>) -> Result<()
     // TODO: populate the header
 
     let partition_entries = partitions.iter().map(|p| GptPartitionEntry::from_partition(p)).collect::<Vec<_>>();
-    f.write_all(&gpt_header.bytes()).map_err(BobErr::IO)?;
+    gpt_header.write(f)?;
+
     for p in partition_entries {
 	p.write(f)?;
     }
@@ -211,6 +212,24 @@ struct GptHeader {
 }
 
 impl GptHeader {
+
+    fn write(&self, f: &mut File) -> Result<(), BobErr> {
+	f.write_all(&self.signature.to_ne_bytes()).map_err(BobErr::IO)?;
+	f.write_all(&self.revision.to_ne_bytes()).map_err(BobErr::IO)?;
+	f.write_all(&self.header_sz.to_ne_bytes()).map_err(BobErr::IO)?;
+	f.write_all(&self.header_crc32.to_ne_bytes()).map_err(BobErr::IO)?;
+	f.write_all(&self.reserved.to_ne_bytes()).map_err(BobErr::IO)?;
+	f.write_all(&self.my_lba.to_ne_bytes()).map_err(BobErr::IO)?;
+	f.write_all(&self.alt_lba.to_ne_bytes()).map_err(BobErr::IO)?;
+	f.write_all(&self.first_usable_lba.to_ne_bytes()).map_err(BobErr::IO)?;
+	f.write_all(&self.last_usable_lba.to_ne_bytes()).map_err(BobErr::IO)?;
+	f.write_all(&self.disk_guid).map_err(BobErr::IO)?;
+	f.write_all(&self.partition_entry_lba.to_ne_bytes()).map_err(BobErr::IO)?;
+	f.write_all(&self.num_partition_entries.to_ne_bytes()).map_err(BobErr::IO)?;
+	f.write_all(&self.partition_entry_sz.to_ne_bytes()).map_err(BobErr::IO)?;
+	f.write_all(&self.partition_entry_array_crc32.to_ne_bytes()).map_err(BobErr::IO)?;
+	Ok(())
+    }
 
     fn bytes(&self) -> Vec<u8> {
 	let mut bytes = vec![0;92];

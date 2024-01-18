@@ -82,7 +82,12 @@ impl DiskImgBuilder {
 	header.first_usable_lba = 34;
 	// Subtracts 33 to reserve enough logical blocks for the backup partition table header (1)
 	// and partiton entry array (32).
-	header.last_usable_lba = (image_size / LOGICAL_BLOCK_SZ) as u64 - 33;
+	let size_in_blocks = (image_size / LOGICAL_BLOCK_SZ) as u64;
+	if size_in_blocks < 34 + 33 + 1 {
+	    return Err(BobErr::ImageTooSmall);
+	}
+
+	header.last_usable_lba =  size_in_blocks - 33;
 	// TODO: generate GUIDs
 	header.disk_guid = [0;16];
 	header.partition_entry_lba = 2;
@@ -244,13 +249,20 @@ impl GptHeader {
 
     fn crc(&mut self) {
 	self.header_crc32 = 0;
-	self.header_crc32 = crc32(&self.signature.to_ne_bytes()) + crc32(&self.revision.to_ne_bytes()) +
-	    crc32(&self.header_sz.to_ne_bytes()) + crc32(&self.header_crc32.to_ne_bytes()) +
-	    crc32(&self.reserved.to_ne_bytes()) + crc32(&self.my_lba.to_ne_bytes()) +
-	    crc32(&self.alt_lba.to_ne_bytes()) + crc32(&self.first_usable_lba.to_ne_bytes()) +
-	    crc32(&self.last_usable_lba.to_ne_bytes()) + crc32(&self.disk_guid) +
-	    crc32(&self.partition_entry_lba.to_ne_bytes()) + crc32(&self.num_partition_entries.to_ne_bytes()) +
-	    crc32(&self.partition_entry_sz.to_ne_bytes()) + crc32(&self.partition_entry_array_crc32.to_ne_bytes());
+	self.header_crc32 = crc32(&self.signature.to_ne_bytes());
+	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.revision.to_ne_bytes()));
+	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.header_sz.to_ne_bytes()));
+	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.header_crc32.to_ne_bytes()));
+	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.reserved.to_ne_bytes()));
+	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.my_lba.to_ne_bytes()));
+	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.alt_lba.to_ne_bytes()));
+	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.first_usable_lba.to_ne_bytes()));
+	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.last_usable_lba.to_ne_bytes()));
+	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.disk_guid));
+	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.partition_entry_lba.to_ne_bytes()));
+	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.num_partition_entries.to_ne_bytes()));
+	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.partition_entry_sz.to_ne_bytes()));
+	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.partition_entry_array_crc32.to_ne_bytes()));
     }
 
     fn new() -> Self {

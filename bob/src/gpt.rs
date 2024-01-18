@@ -80,13 +80,13 @@ impl DiskImgBuilder {
 	header.alt_lba = (image_size / LOGICAL_BLOCK_SZ) as u64 - 1;
 	// Starts after minimum amount to reserve for protective MBR, GPT Header, and partition entry array.
 	header.first_usable_lba = 34;
-	// Subtracts 33 to reserve enough logical blocks for the backup partition table header (1)
-	// and partiton entry array (32).
 	let size_in_blocks = (image_size / LOGICAL_BLOCK_SZ) as u64;
 	if size_in_blocks < 34 + 33 + 1 {
 	    return Err(BobErr::ImageTooSmall);
 	}
 
+	// Subtracts 33 to reserve enough logical blocks for the backup partition table header (1)
+	// and partiton entry array (32).
 	header.last_usable_lba =  size_in_blocks - 33;
 	// TODO: generate GUIDs
 	header.disk_guid = [0;16];

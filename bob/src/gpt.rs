@@ -3,6 +3,9 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::time::SystemTime;
 use crate::err::BobErr;
+use crate::crc::crc32;
+
+const LOGICAL_BLOCK_SZ: usize = 512;
 
 pub struct DiskImgBuilder {
     image_size: Option<usize>,
@@ -64,8 +67,47 @@ impl DiskImgBuilder {
 	    return Err(BobErr::MissingArgument);
 	}
 
-	write_protective_mbr_header(&mut f, self.image_size.unwrap())?;
-	write_partition_table(&mut f, &self.partitions)?;
+	Self::write_protective_mbr_header(&mut f, self.image_size.unwrap())?;
+
+	let image_size = self.image_size.expect("To have an image size provided");
+	let _partition_entries = &self.partitions.iter().map(|p| GptPartitionEntry::from_partition(p)).collect::<Vec<_>>();
+	let mut header = GptHeader::new();
+
+	// We don't extend the Protective MBR beyond 1 logical block in size
+	// so this header is the second (or index 1).
+	header.my_lba = 1;
+	// Alternate (backup) header is located in the last logical block
+	header.alt_lba = (image_size / LOGICAL_BLOCK_SZ) as u64 - 1;
+	// Starts after minimum amount to reserve for protective MBR, GPT Header, and partition entry array.
+	header.first_usable_lba = 34;
+	// Subtracts 33 to reserve enough logical blocks for the backup partition table header (1)
+	// and partiton entry array (32).
+	header.last_usable_lba = (image_size / LOGICAL_BLOCK_SZ) as u64 - 33;
+	// TODO: generate GUIDs
+	header.disk_guid = [0;16];
+	header.partition_entry_lba = 2;
+
+	header.crc();
+	header.write(&mut f)?;
+
+	Ok(())
+    }
+
+    fn write_protective_mbr_header(f: &mut File, size: usize) -> Result<(), BobErr> {
+	let unused = [0;440 + 4 + 2];
+	f.write_all(&unused).map_err(BobErr::IO)?;
+
+	let zero = PartitionRecord::new();
+	let mut first_record = PartitionRecord::new();
+	first_record.starting_chs = [0x00, 0x02, 0x00];
+	first_record.os_type = 0xEE;
+	first_record.starting_lba = 0x00000001;
+	first_record.size_in_lba = (size / LOGICAL_BLOCK_SZ) as u32;
+
+	first_record.write(f)?;
+	zero.write(f)?;
+	zero.write(f)?;
+	zero.write(f)?;
 
 	Ok(())
     }
@@ -129,39 +171,6 @@ pub enum PartitionType {
     EFISystem,
 }
 
-fn write_protective_mbr_header(f: &mut File, size: usize) -> Result<(), BobErr> {
-    let unused = [0;440 + 4 + 2];
-    f.write_all(&unused).map_err(BobErr::IO)?;
-
-    let zero = PartitionRecord::new();
-    let mut first_record = PartitionRecord::new();
-    first_record.starting_chs = [0x00, 0x02, 0x00];
-    first_record.os_type = 0xEE;
-    first_record.starting_lba = 0x00000001;
-    first_record.size_in_lba = (size / 512) as u32;
-
-    first_record.write(f)?;
-    zero.write(f)?;
-    zero.write(f)?;
-    zero.write(f)?;
-
-    Ok(())
-}
-
-fn write_partition_table(f: &mut File, partitions: &Vec<Partition>) -> Result<(), BobErr> {
-    let gpt_header = GptHeader::new();
-    // TODO: populate the header
-
-    let partition_entries = partitions.iter().map(|p| GptPartitionEntry::from_partition(p)).collect::<Vec<_>>();
-    gpt_header.write(f)?;
-
-    for p in partition_entries {
-	p.write(f)?;
-    }
-
-    Ok(())
-}
-
 struct PartitionRecord {
     boot_indicator: u8,
     starting_chs: [u8;3],
@@ -214,6 +223,7 @@ struct GptHeader {
 impl GptHeader {
 
     fn write(&self, f: &mut File) -> Result<(), BobErr> {
+
 	f.write_all(&self.signature.to_ne_bytes()).map_err(BobErr::IO)?;
 	f.write_all(&self.revision.to_ne_bytes()).map_err(BobErr::IO)?;
 	f.write_all(&self.header_sz.to_ne_bytes()).map_err(BobErr::IO)?;
@@ -228,27 +238,19 @@ impl GptHeader {
 	f.write_all(&self.num_partition_entries.to_ne_bytes()).map_err(BobErr::IO)?;
 	f.write_all(&self.partition_entry_sz.to_ne_bytes()).map_err(BobErr::IO)?;
 	f.write_all(&self.partition_entry_array_crc32.to_ne_bytes()).map_err(BobErr::IO)?;
+
 	Ok(())
     }
 
-    fn bytes(&self) -> Vec<u8> {
-	let mut bytes = vec![0;92];
-	bytes[0..8].copy_from_slice(&self.signature.to_ne_bytes());
-	bytes[8..12].copy_from_slice(&self.revision.to_ne_bytes());
-	bytes[12..16].copy_from_slice(&self.header_sz.to_ne_bytes());
-	bytes[16..20].copy_from_slice(&self.header_crc32.to_ne_bytes());
-	bytes[20..24].copy_from_slice(&self.reserved.to_ne_bytes());
-	bytes[24..32].copy_from_slice(&self.my_lba.to_ne_bytes());
-	bytes[32..40].copy_from_slice(&self.alt_lba.to_ne_bytes());
-	bytes[40..48].copy_from_slice(&self.first_usable_lba.to_ne_bytes());
-	bytes[48..56].copy_from_slice(&self.last_usable_lba.to_ne_bytes());
-	bytes[56..72].copy_from_slice(&self.disk_guid);
-	bytes[72..80].copy_from_slice(&self.partition_entry_lba.to_ne_bytes());
-	bytes[80..84].copy_from_slice(&self.num_partition_entries.to_ne_bytes());
-	bytes[84..88].copy_from_slice(&self.partition_entry_sz.to_ne_bytes());
-	bytes[88..92].copy_from_slice(&self.partition_entry_array_crc32.to_ne_bytes());
-
-	bytes
+    fn crc(&mut self) {
+	self.header_crc32 = 0;
+	self.header_crc32 = crc32(&self.signature.to_ne_bytes()) + crc32(&self.revision.to_ne_bytes()) +
+	    crc32(&self.header_sz.to_ne_bytes()) + crc32(&self.header_crc32.to_ne_bytes()) +
+	    crc32(&self.reserved.to_ne_bytes()) + crc32(&self.my_lba.to_ne_bytes()) +
+	    crc32(&self.alt_lba.to_ne_bytes()) + crc32(&self.first_usable_lba.to_ne_bytes()) +
+	    crc32(&self.last_usable_lba.to_ne_bytes()) + crc32(&self.disk_guid) +
+	    crc32(&self.partition_entry_lba.to_ne_bytes()) + crc32(&self.num_partition_entries.to_ne_bytes()) +
+	    crc32(&self.partition_entry_sz.to_ne_bytes()) + crc32(&self.partition_entry_array_crc32.to_ne_bytes());
     }
 
     fn new() -> Self {

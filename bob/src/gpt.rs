@@ -253,9 +253,9 @@ impl GptHeader {
 
     fn new() -> Self {
 	Self {
-	    signature: 0,
-	    revision: 0,
-	    header_sz: 0,
+	    signature: 0x5452415020494645, // ASCII string “EFI PART”
+	    revision: 0x00010000,
+	    header_sz: 92,
 	    header_crc32: 0,
 	    reserved: 0,
 	    my_lba: 0,

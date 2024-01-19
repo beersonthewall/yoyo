@@ -98,21 +98,40 @@ impl DiskImgBuilder {
 	Ok(())
     }
 
+    /// Write the Protective MBR Header.
+    /// Ref: https://uefi.org/specs/UEFI/2.10/05_GUID_Partition_Table_Format.html#protective-mbr
     fn write_protective_mbr_header(f: &mut File, size: usize) -> Result<(), BobErr> {
-	let unused = [0;440 + 4 + 2];
-	f.write_all(&unused).map_err(BobErr::IO)?;
+	// First 440 bytes are unused by UEFI systems
+	f.write_all(&[0;440]).map_err(BobErr::IO)?;
 
-	let zero = PartitionRecord::new();
+	// Unique MBR Disk Signature, unused.
+	f.write_all(&[0;4]).map_err(BobErr::IO)?;
+
+	// Uknown
+	f.write_all(&[0;2]).map_err(BobErr::IO)?;
+
+
 	let mut first_record = PartitionRecord::new();
 	first_record.starting_chs = [0x00, 0x02, 0x00];
 	first_record.os_type = 0xEE;
 	first_record.starting_lba = 0x00000001;
 	first_record.size_in_lba = (size / LOGICAL_BLOCK_SZ) as u32;
-
 	first_record.write(f)?;
+
+	let zero = PartitionRecord::new();
 	zero.write(f)?;
 	zero.write(f)?;
 	zero.write(f)?;
+
+	// signature, set to 0xAA55.
+	f.write_all(&[0x55, 0xAA]).map_err(BobErr::IO)?;
+
+	// May need to pad out to the logical block size
+	let pos = f.stream_position().map_err(BobErr::IO)?;
+	if pos < (LOGICAL_BLOCK_SZ - 1) as u64 {
+	    let zeros: Vec<u8> = [0].repeat(LOGICAL_BLOCK_SZ - 1 - pos as usize);
+	    f.write_all(&zeros).map_err(BobErr::IO)?;
+	}
 
 	Ok(())
     }

@@ -2,6 +2,7 @@ use std::ffi::CString;
 use std::fs::File;
 use std::io::prelude::*;
 use std::time::SystemTime;
+use uuid::{uuid, Uuid};
 use crate::err::BobErr;
 use crate::crc::crc32;
 
@@ -208,6 +209,14 @@ pub enum PartitionType {
     EFISystem,
 }
 
+impl PartitionType {
+    fn uuid(&self) -> Uuid {
+	match self {
+	    Self::EFISystem => uuid!("C12A7328-F81F-11D2-BA4B-00A0C93EC93B"),
+	}
+    }
+}
+
 struct PartitionRecord {
     boot_indicator: u8,
     starting_chs: [u8;3],
@@ -318,8 +327,8 @@ impl GptHeader {
 }
 
 struct GptPartitionEntry {
-    partition_type_guid: [u8;16],
-    unique_partition_guid: [u8;16],
+    partition_type_guid: Uuid,
+    unique_partition_guid: Uuid,
     starting_lba: u64,
     ending_lba: u64,
     attributes: u64,
@@ -329,19 +338,25 @@ struct GptPartitionEntry {
 impl GptPartitionEntry {
 
     fn from_partition(p: &Partition) -> Self {
+
+	let partition_type_guid = p.pt.uuid();
+	let starting_lba = (p.start_offset / LOGICAL_BLOCK_SZ) as u64;
+	let ending_lba = (p.end_offset / LOGICAL_BLOCK_SZ) as u64;
+	let unique_partition_guid = Uuid::new_v4();
+
 	Self {
-	    partition_type_guid: [0;16],
-	    unique_partition_guid: [0;16],
-	    starting_lba: 0,
-	    ending_lba: 0,
+	    partition_type_guid,
+	    unique_partition_guid,
+	    starting_lba,
+	    ending_lba,
 	    attributes: 0,
 	    partition_name: CString::new("").expect("Cannot happen, does not contain null byte."),
 	}
     }
 
     fn write(&self, f: &mut File) -> Result<(), BobErr> {
-	f.write_all(&self.partition_type_guid).map_err(BobErr::IO)?;
-	f.write_all(&self.unique_partition_guid).map_err(BobErr::IO)?;
+	f.write_all(self.partition_type_guid.as_bytes()).map_err(BobErr::IO)?;
+	f.write_all(self.unique_partition_guid.as_bytes()).map_err(BobErr::IO)?;
 	f.write_all(&self.starting_lba.to_ne_bytes()).map_err(BobErr::IO)?;
 	f.write_all(&self.ending_lba.to_ne_bytes()).map_err(BobErr::IO)?;
 	f.write_all(&self.attributes.to_ne_bytes()).map_err(BobErr::IO)?;

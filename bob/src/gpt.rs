@@ -67,33 +67,13 @@ impl DiskImgBuilder {
 	    return Err(BobErr::MissingArgument);
 	}
 
-	Self::write_protective_mbr_header(&mut f, self.image_size.unwrap())?;
-
 	let image_size = self.image_size.expect("To have an image size provided");
-	let _partition_entries = &self.partitions.iter().map(|p| GptPartitionEntry::from_partition(p)).collect::<Vec<_>>();
-	let mut header = GptHeader::new();
+	Self::write_protective_mbr_header(&mut f, image_size)?;
+	Self::write_gpt_partition_table(&mut f, image_size, &self.partitions)?;
 
-	// We don't extend the Protective MBR beyond 1 logical block in size
-	// so this header is the second (or index 1).
-	header.my_lba = 1;
-	// Alternate (backup) header is located in the last logical block
-	header.alt_lba = (image_size / LOGICAL_BLOCK_SZ) as u64 - 1;
-	// Starts after minimum amount to reserve for protective MBR, GPT Header, and partition entry array.
-	header.first_usable_lba = 34;
-	let size_in_blocks = (image_size / LOGICAL_BLOCK_SZ) as u64;
-	if size_in_blocks < 34 + 33 + 1 {
-	    return Err(BobErr::ImageTooSmall);
-	}
-
-	// Subtracts 33 to reserve enough logical blocks for the backup partition table header (1)
-	// and partiton entry array (32).
-	header.last_usable_lba =  size_in_blocks - 33;
-	// TODO: generate GUIDs
-	header.disk_guid = [0;16];
-	header.partition_entry_lba = 2;
-
-	header.crc();
-	header.write(&mut f)?;
+	// TODO: validate the partiton offsets given make any sense
+	// TODO: Push file cursor past partition space in the image
+	// TODO: write the alternate partition table
 
 	Ok(())
     }
@@ -135,6 +115,39 @@ impl DiskImgBuilder {
 
 	Ok(())
     }
+
+    /// Write the partition table
+    /// Header reference: https://uefi.org/specs/UEFI/2.10/05_GUID_Partition_Table_Format.html#gpt-header
+    /// Entry reference: https://uefi.org/specs/UEFI/2.10/05_GUID_Partition_Table_Format.html#gpt-partition-entry-array
+    fn write_gpt_partition_table(f: &mut File, image_size: usize, partitions: &[Partition]) -> Result<(), BobErr> {
+	let _partition_entries = &partitions.iter().map(|p| GptPartitionEntry::from_partition(p)).collect::<Vec<_>>();
+	let mut header = GptHeader::new();
+
+	// We don't extend the Protective MBR beyond 1 logical block in size
+	// so this header is the second (or index 1).
+	header.my_lba = 1;
+	// Alternate (backup) header is located in the last logical block
+	header.alt_lba = (image_size / LOGICAL_BLOCK_SZ) as u64 - 1;
+	// Starts after minimum amount to reserve for protective MBR, GPT Header, and partition entry array.
+	header.first_usable_lba = 34;
+	let size_in_blocks = (image_size / LOGICAL_BLOCK_SZ) as u64;
+	if size_in_blocks < 34 + 33 + 1 {
+	    return Err(BobErr::ImageTooSmall);
+	}
+
+	// Subtracts 33 to reserve enough logical blocks for the backup partition table header (1)
+	// and partiton entry array (32).
+	header.last_usable_lba =  size_in_blocks - 33;
+	// TODO: generate GUIDs
+	header.disk_guid = [0;16];
+	header.partition_entry_lba = 2;
+
+	header.crc();
+	header.write(f)?;
+
+	Ok(())
+    }
+
 }
 
 /// A GPT Partition

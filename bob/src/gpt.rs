@@ -349,6 +349,7 @@ impl GptPartitionEntry {
 	    unique_partition_guid,
 	    starting_lba,
 	    ending_lba,
+	    // TODO: bit 1 may need to be set for EFI System partitions
 	    attributes: 0,
 	    partition_name: CString::new("").expect("Cannot happen, does not contain null byte."),
 	}

@@ -121,7 +121,8 @@ impl DiskImgBuilder {
     /// Header reference: https://uefi.org/specs/UEFI/2.10/05_GUID_Partition_Table_Format.html#gpt-header
     /// Entry reference: https://uefi.org/specs/UEFI/2.10/05_GUID_Partition_Table_Format.html#gpt-partition-entry-array
     fn write_gpt_partition_table(f: &mut File, image_size: usize, partitions: &[Partition]) -> Result<(), BobErr> {
-	let _partition_entries = &partitions.iter().map(|p| GptPartitionEntry::from_partition(p)).collect::<Vec<_>>();
+	let partition_entries = &partitions.iter().map(|p| GptPartitionEntry::from_partition(p)).collect::<Vec<_>>();
+
 	let mut header = GptHeader::new();
 
 	// We don't extend the Protective MBR beyond 1 logical block in size
@@ -139,16 +140,23 @@ impl DiskImgBuilder {
 	// Subtracts 33 to reserve enough logical blocks for the backup partition table header (1)
 	// and partiton entry array (32).
 	header.last_usable_lba =  size_in_blocks - 33;
-	// TODO: generate GUIDs
-	header.disk_guid = [0;16];
+
+	// Partiton table information
 	header.partition_entry_lba = 2;
+	header.num_partition_entries = partition_entries.len() as u32;
+	header.partition_entry_sz = 128;
+	let crc: u32 = partition_entries.iter().map(|p| p.crc()).sum();
+	header.partition_entry_array_crc32 = crc;
 
 	header.crc();
 	header.write(f)?;
 
+	for p in partition_entries {
+	    p.write(f)?;
+	}
+
 	Ok(())
     }
-
 }
 
 /// A GPT Partition
@@ -259,7 +267,7 @@ struct GptHeader {
     alt_lba: u64,
     first_usable_lba: u64,
     last_usable_lba: u64,
-    disk_guid: [u8;16],
+    disk_guid: Uuid,
     partition_entry_lba: u64,
     num_partition_entries: u32,
     partition_entry_sz: u32,
@@ -279,11 +287,13 @@ impl GptHeader {
 	f.write_all(&self.alt_lba.to_ne_bytes()).map_err(BobErr::IO)?;
 	f.write_all(&self.first_usable_lba.to_ne_bytes()).map_err(BobErr::IO)?;
 	f.write_all(&self.last_usable_lba.to_ne_bytes()).map_err(BobErr::IO)?;
-	f.write_all(&self.disk_guid).map_err(BobErr::IO)?;
+	f.write_all(self.disk_guid.as_bytes()).map_err(BobErr::IO)?;
 	f.write_all(&self.partition_entry_lba.to_ne_bytes()).map_err(BobErr::IO)?;
 	f.write_all(&self.num_partition_entries.to_ne_bytes()).map_err(BobErr::IO)?;
 	f.write_all(&self.partition_entry_sz.to_ne_bytes()).map_err(BobErr::IO)?;
 	f.write_all(&self.partition_entry_array_crc32.to_ne_bytes()).map_err(BobErr::IO)?;
+
+	f.seek(std::io::SeekFrom::Current((LOGICAL_BLOCK_SZ as i64) - 92)).map_err(BobErr::IO)?;
 
 	Ok(())
     }
@@ -299,7 +309,7 @@ impl GptHeader {
 	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.alt_lba.to_ne_bytes()));
 	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.first_usable_lba.to_ne_bytes()));
 	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.last_usable_lba.to_ne_bytes()));
-	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.disk_guid));
+	self.header_crc32 = self.header_crc32.wrapping_add(crc32(self.disk_guid.as_bytes()));
 	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.partition_entry_lba.to_ne_bytes()));
 	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.num_partition_entries.to_ne_bytes()));
 	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.partition_entry_sz.to_ne_bytes()));
@@ -317,7 +327,7 @@ impl GptHeader {
 	    alt_lba: 0,
 	    first_usable_lba: 0,
 	    last_usable_lba: 0,
-	    disk_guid: [0;16],
+	    disk_guid: Uuid::new_v4(),
 	    partition_entry_lba: 0,
 	    num_partition_entries: 0,
 	    partition_entry_sz: 0,
@@ -338,7 +348,6 @@ struct GptPartitionEntry {
 impl GptPartitionEntry {
 
     fn from_partition(p: &Partition) -> Self {
-
 	let partition_type_guid = p.pt.uuid();
 	let starting_lba = (p.start_offset / LOGICAL_BLOCK_SZ) as u64;
 	let ending_lba = (p.end_offset / LOGICAL_BLOCK_SZ) as u64;
@@ -355,6 +364,16 @@ impl GptPartitionEntry {
 	}
     }
 
+    fn crc(&self) -> u32 {
+	let mut crc = crc32(self.partition_type_guid.as_bytes());
+	crc = crc.wrapping_add(crc32(self.unique_partition_guid.as_bytes()));
+	crc = crc.wrapping_add(crc32(&self.starting_lba.to_ne_bytes()));
+	crc = crc.wrapping_add(crc32(&self.ending_lba.to_ne_bytes()));
+	crc = crc.wrapping_add(crc32(&self.attributes.to_ne_bytes()));
+	crc = crc.wrapping_add(crc32(&self.partition_name.as_bytes()));
+	crc
+    }
+
     fn write(&self, f: &mut File) -> Result<(), BobErr> {
 	f.write_all(self.partition_type_guid.as_bytes()).map_err(BobErr::IO)?;
 	f.write_all(self.unique_partition_guid.as_bytes()).map_err(BobErr::IO)?;
@@ -362,7 +381,6 @@ impl GptPartitionEntry {
 	f.write_all(&self.ending_lba.to_ne_bytes()).map_err(BobErr::IO)?;
 	f.write_all(&self.attributes.to_ne_bytes()).map_err(BobErr::IO)?;
 	f.write_all(&self.partition_name.as_bytes()).map_err(BobErr::IO)?;
-
 	Ok(())
     }
 }

@@ -155,6 +155,22 @@ impl DiskImgBuilder {
 	    p.write(f)?;
 	}
 
+	// Write the backup partition table and header in the last two logical blocks
+	f.seek(std::io::SeekFrom::End(-2 * (LOGICAL_BLOCK_SZ as i64))).map_err(BobErr::IO)?;
+	for p in partition_entries {
+	    p.write(f)?;
+	}
+
+	f.seek(std::io::SeekFrom::End(-(LOGICAL_BLOCK_SZ as i64))).map_err(BobErr::IO)?;
+
+	let tmp = header.my_lba;
+	header.my_lba = header.alt_lba;
+	header.alt_lba = tmp;
+	header.partition_entry_lba = ((image_size / LOGICAL_BLOCK_SZ) - 2) as u64;
+
+	header.crc();
+	header.write(f)?;
+
 	Ok(())
     }
 }

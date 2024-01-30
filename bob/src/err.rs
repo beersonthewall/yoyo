@@ -4,4 +4,5 @@ pub enum BobErr {
     MissingArgument,
     IO(std::io::Error),
     ImageTooSmall,
+    PartitionNameTooLong,
 }

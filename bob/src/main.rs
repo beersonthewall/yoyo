@@ -2,6 +2,7 @@ mod cmd;
 mod crc;
 mod err;
 mod gpt;
+mod guid;
 
 use clap::{
     arg, command, Arg, Command, value_parser,

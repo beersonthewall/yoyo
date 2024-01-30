@@ -1,12 +1,14 @@
 use std::ffi::CString;
 use std::fs::File;
 use std::io::prelude::*;
+use std::io::SeekFrom;
 use std::time::SystemTime;
-use uuid::{uuid, Uuid};
 use crate::err::BobErr;
 use crate::crc::crc32;
+use crate::guid::Guid;
 
 const LOGICAL_BLOCK_SZ: usize = 512;
+const PARTITION_NAME_MAX_BYTES: usize = 72;
 
 pub struct DiskImgBuilder {
     image_size: Option<usize>,
@@ -71,10 +73,15 @@ impl DiskImgBuilder {
 	let image_size = self.image_size.expect("To have an image size provided");
 	Self::write_protective_mbr_header(&mut f, image_size)?;	
 	// TODO: validate the partiton offsets given make any sense
+	let pos = f.stream_position().unwrap();
+	println!("Pos: {}", pos);
 	Self::write_gpt_partition_table(&mut f, image_size, &self.partitions)?;
-
+	let pos = f.stream_position().unwrap();
+	println!("Pos: {}", pos);
 	// TODO: Push file cursor past partition space in the image
 	// TODO: write the alternate partition table
+
+	f.flush().map_err(BobErr::IO)?;
 
 	Ok(())
     }
@@ -143,7 +150,7 @@ impl DiskImgBuilder {
 
 	// Partiton table information
 	header.partition_entry_lba = 2;
-	header.num_partition_entries = partition_entries.len() as u32;
+	header.num_partition_entries = 128;
 	header.partition_entry_sz = 128;
 	let crc: u32 = partition_entries.iter().map(|p| p.crc()).sum();
 	header.partition_entry_array_crc32 = crc;
@@ -151,25 +158,14 @@ impl DiskImgBuilder {
 	header.crc();
 	header.write(f)?;
 
+	let pos = f.stream_position().unwrap();
+	println!("pos: {pos}");
+
 	for p in partition_entries {
 	    p.write(f)?;
+	    let pos = f.stream_position().unwrap();
+	    println!("pos: {pos}")
 	}
-
-	// Write the backup partition table and header in the last two logical blocks
-	f.seek(std::io::SeekFrom::End(-2 * (LOGICAL_BLOCK_SZ as i64))).map_err(BobErr::IO)?;
-	for p in partition_entries {
-	    p.write(f)?;
-	}
-
-	f.seek(std::io::SeekFrom::End(-(LOGICAL_BLOCK_SZ as i64))).map_err(BobErr::IO)?;
-
-	let tmp = header.my_lba;
-	header.my_lba = header.alt_lba;
-	header.alt_lba = tmp;
-	header.partition_entry_lba = ((image_size / LOGICAL_BLOCK_SZ) - 2) as u64;
-
-	header.crc();
-	header.write(f)?;
 
 	Ok(())
     }
@@ -234,9 +230,16 @@ pub enum PartitionType {
 }
 
 impl PartitionType {
-    fn uuid(&self) -> Uuid {
+    fn uuid(&self) -> Guid {
+	let b =[0xC1, 0x2A, 0x73, 0x28, 0xF8, 0x1F, 0x11, 0xD2, 0xBA, 0x4B, 0x00, 0xA0, 0xC9, 0x3E, 0xC9, 0x3B];
 	match self {
-	    Self::EFISystem => uuid!("C12A7328-F81F-11D2-BA4B-00A0C93EC93B"),
+	    Self::EFISystem => Guid::from_bytes(b),
+	}
+    }
+
+    fn name(&self) -> CString {
+	match self {
+	    Self::EFISystem => CString::new("EFI System Partition").expect("No null byte, not possible"),
 	}
     }
 }
@@ -263,12 +266,24 @@ impl PartitionRecord {
     }
 
     fn write(&self, f: &mut File) -> Result<(), BobErr> {
-	f.write_all(&self.boot_indicator.to_ne_bytes()).map_err(BobErr::IO)?;
-	f.write_all(&self.starting_chs).map_err(BobErr::IO)?;
-	f.write_all(&self.os_type.to_ne_bytes()).map_err(BobErr::IO)?;
-	f.write_all(&self.ending_chs).map_err(BobErr::IO)?;
-	f.write_all(&self.starting_lba.to_ne_bytes()).map_err(BobErr::IO)?;
-	f.write_all(&self.size_in_lba.to_ne_bytes()).map_err(BobErr::IO)?;
+	#[cfg(target_endian = "little")]
+	{
+	    f.write_all(&self.boot_indicator.to_le_bytes()).map_err(BobErr::IO)?;
+	    f.write_all(&self.starting_chs).map_err(BobErr::IO)?;
+	    f.write_all(&self.os_type.to_le_bytes()).map_err(BobErr::IO)?;
+	    f.write_all(&self.ending_chs).map_err(BobErr::IO)?;
+	    f.write_all(&self.starting_lba.to_le_bytes()).map_err(BobErr::IO)?;
+	    f.write_all(&self.size_in_lba.to_le_bytes()).map_err(BobErr::IO)?;
+	}
+	#[cfg(target_endian = "big")]
+	{
+	    f.write_all(&self.boot_indicator.to_be_bytes()).map_err(BobErr::IO)?;
+	    f.write_all(&self.starting_chs).map_err(BobErr::IO)?;
+	    f.write_all(&self.os_type.to_be_bytes()).map_err(BobErr::IO)?;
+	    f.write_all(&self.ending_chs).map_err(BobErr::IO)?;
+	    f.write_all(&self.starting_lba.to_be_bytes()).map_err(BobErr::IO)?;
+	    f.write_all(&self.size_in_lba.to_be_bytes()).map_err(BobErr::IO)?;
+	}	
 	Ok(())
     }
 }
@@ -283,7 +298,7 @@ struct GptHeader {
     alt_lba: u64,
     first_usable_lba: u64,
     last_usable_lba: u64,
-    disk_guid: Uuid,
+    disk_guid: Guid,
     partition_entry_lba: u64,
     num_partition_entries: u32,
     partition_entry_sz: u32,
@@ -291,46 +306,6 @@ struct GptHeader {
 }
 
 impl GptHeader {
-
-    fn write(&self, f: &mut File) -> Result<(), BobErr> {
-
-	f.write_all(&self.signature.to_ne_bytes()).map_err(BobErr::IO)?;
-	f.write_all(&self.revision.to_ne_bytes()).map_err(BobErr::IO)?;
-	f.write_all(&self.header_sz.to_ne_bytes()).map_err(BobErr::IO)?;
-	f.write_all(&self.header_crc32.to_ne_bytes()).map_err(BobErr::IO)?;
-	f.write_all(&self.reserved.to_ne_bytes()).map_err(BobErr::IO)?;
-	f.write_all(&self.my_lba.to_ne_bytes()).map_err(BobErr::IO)?;
-	f.write_all(&self.alt_lba.to_ne_bytes()).map_err(BobErr::IO)?;
-	f.write_all(&self.first_usable_lba.to_ne_bytes()).map_err(BobErr::IO)?;
-	f.write_all(&self.last_usable_lba.to_ne_bytes()).map_err(BobErr::IO)?;
-	f.write_all(self.disk_guid.as_bytes()).map_err(BobErr::IO)?;
-	f.write_all(&self.partition_entry_lba.to_ne_bytes()).map_err(BobErr::IO)?;
-	f.write_all(&self.num_partition_entries.to_ne_bytes()).map_err(BobErr::IO)?;
-	f.write_all(&self.partition_entry_sz.to_ne_bytes()).map_err(BobErr::IO)?;
-	f.write_all(&self.partition_entry_array_crc32.to_ne_bytes()).map_err(BobErr::IO)?;
-
-	f.seek(std::io::SeekFrom::Current((LOGICAL_BLOCK_SZ as i64) - 92)).map_err(BobErr::IO)?;
-
-	Ok(())
-    }
-
-    fn crc(&mut self) {
-	self.header_crc32 = 0;
-	self.header_crc32 = crc32(&self.signature.to_ne_bytes());
-	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.revision.to_ne_bytes()));
-	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.header_sz.to_ne_bytes()));
-	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.header_crc32.to_ne_bytes()));
-	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.reserved.to_ne_bytes()));
-	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.my_lba.to_ne_bytes()));
-	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.alt_lba.to_ne_bytes()));
-	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.first_usable_lba.to_ne_bytes()));
-	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.last_usable_lba.to_ne_bytes()));
-	self.header_crc32 = self.header_crc32.wrapping_add(crc32(self.disk_guid.as_bytes()));
-	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.partition_entry_lba.to_ne_bytes()));
-	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.num_partition_entries.to_ne_bytes()));
-	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.partition_entry_sz.to_ne_bytes()));
-	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.partition_entry_array_crc32.to_ne_bytes()));
-    }
 
     fn new() -> Self {
 	Self {
@@ -343,18 +318,78 @@ impl GptHeader {
 	    alt_lba: 0,
 	    first_usable_lba: 0,
 	    last_usable_lba: 0,
-	    disk_guid: Uuid::new_v4(),
+	    disk_guid: Guid::new_v4(),
 	    partition_entry_lba: 0,
 	    num_partition_entries: 0,
 	    partition_entry_sz: 0,
 	    partition_entry_array_crc32: 0,
 	}
     }
+
+    fn write(&self, f: &mut File) -> Result<(), BobErr> {
+	#[cfg(target_endian = "little")]
+	{
+	    f.write_all(&self.signature.to_le_bytes()).map_err(BobErr::IO)?;
+	    f.write_all(&self.revision.to_le_bytes()).map_err(BobErr::IO)?;
+	    f.write_all(&self.header_sz.to_le_bytes()).map_err(BobErr::IO)?;
+	    f.write_all(&self.header_crc32.to_le_bytes()).map_err(BobErr::IO)?;
+	    f.write_all(&self.reserved.to_le_bytes()).map_err(BobErr::IO)?;
+	    f.write_all(&self.my_lba.to_le_bytes()).map_err(BobErr::IO)?;
+	    f.write_all(&self.alt_lba.to_le_bytes()).map_err(BobErr::IO)?;
+	    f.write_all(&self.first_usable_lba.to_le_bytes()).map_err(BobErr::IO)?;
+	    f.write_all(&self.last_usable_lba.to_le_bytes()).map_err(BobErr::IO)?;
+	    f.write_all(&self.disk_guid.to_bytes()).map_err(BobErr::IO)?;
+	    f.write_all(&self.partition_entry_lba.to_le_bytes()).map_err(BobErr::IO)?;
+	    f.write_all(&self.num_partition_entries.to_le_bytes()).map_err(BobErr::IO)?;
+	    f.write_all(&self.partition_entry_sz.to_le_bytes()).map_err(BobErr::IO)?;
+	    f.write_all(&self.partition_entry_array_crc32.to_le_bytes()).map_err(BobErr::IO)?;
+	}
+	#[cfg(target_endian = "big")]
+	{
+	    f.write_all(&self.signature.to_be_bytes()).map_err(BobErr::IO)?;
+	    f.write_all(&self.revision.to_be_bytes()).map_err(BobErr::IO)?;
+	    f.write_all(&self.header_sz.to_be_bytes()).map_err(BobErr::IO)?;
+	    f.write_all(&self.header_crc32.to_be_bytes()).map_err(BobErr::IO)?;
+	    f.write_all(&self.reserved.to_be_bytes()).map_err(BobErr::IO)?;
+	    f.write_all(&self.my_lba.to_be_bytes()).map_err(BobErr::IO)?;
+	    f.write_all(&self.alt_lba.to_be_bytes()).map_err(BobErr::IO)?;
+	    f.write_all(&self.first_usable_lba.to_be_bytes()).map_err(BobErr::IO)?;
+	    f.write_all(&self.last_usable_lba.to_be_bytes()).map_err(BobErr::IO)?;
+	    f.write_all(self.disk_guid.as_bytes()).map_err(BobErr::IO)?;
+	    f.write_all(&self.partition_entry_lba.to_be_bytes()).map_err(BobErr::IO)?;
+	    f.write_all(&self.num_partition_entries.to_be_bytes()).map_err(BobErr::IO)?;
+	    f.write_all(&self.partition_entry_sz.to_be_bytes()).map_err(BobErr::IO)?;
+	    f.write_all(&self.partition_entry_array_crc32.to_be_bytes()).map_err(BobErr::IO)?;
+	}
+
+	f.seek(SeekFrom::Current((LOGICAL_BLOCK_SZ as i64) - 92)).map_err(BobErr::IO)?;
+
+	Ok(())
+    }
+
+    #[cfg(target_endian = "little")]
+    fn crc(&mut self) {
+	self.header_crc32 = 0;
+	self.header_crc32 = crc32(&self.signature.to_le_bytes());
+	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.revision.to_le_bytes()));
+	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.header_sz.to_le_bytes()));
+	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.header_crc32.to_le_bytes()));
+	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.reserved.to_le_bytes()));
+	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.my_lba.to_le_bytes()));
+	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.alt_lba.to_le_bytes()));
+	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.first_usable_lba.to_le_bytes()));
+	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.last_usable_lba.to_le_bytes()));
+	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.disk_guid.to_bytes()));
+	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.partition_entry_lba.to_le_bytes()));
+	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.num_partition_entries.to_le_bytes()));
+	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.partition_entry_sz.to_le_bytes()));
+	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.partition_entry_array_crc32.to_le_bytes()));
+    }
 }
 
 struct GptPartitionEntry {
-    partition_type_guid: Uuid,
-    unique_partition_guid: Uuid,
+    partition_type_guid: Guid,
+    unique_partition_guid: Guid,
     starting_lba: u64,
     ending_lba: u64,
     attributes: u64,
@@ -367,7 +402,8 @@ impl GptPartitionEntry {
 	let partition_type_guid = p.pt.uuid();
 	let starting_lba = (p.start_offset / LOGICAL_BLOCK_SZ) as u64;
 	let ending_lba = (p.end_offset / LOGICAL_BLOCK_SZ) as u64;
-	let unique_partition_guid = Uuid::new_v4();
+	let unique_partition_guid = Guid::new_v4();
+	let partition_name = p.pt.name();
 
 	Self {
 	    partition_type_guid,
@@ -376,27 +412,57 @@ impl GptPartitionEntry {
 	    ending_lba,
 	    // TODO: bit 1 may need to be set for EFI System partitions
 	    attributes: 0,
-	    partition_name: CString::new("").expect("Cannot happen, does not contain null byte."),
+	    partition_name,
 	}
     }
 
     fn crc(&self) -> u32 {
-	let mut crc = crc32(self.partition_type_guid.as_bytes());
-	crc = crc.wrapping_add(crc32(self.unique_partition_guid.as_bytes()));
-	crc = crc.wrapping_add(crc32(&self.starting_lba.to_ne_bytes()));
-	crc = crc.wrapping_add(crc32(&self.ending_lba.to_ne_bytes()));
-	crc = crc.wrapping_add(crc32(&self.attributes.to_ne_bytes()));
-	crc = crc.wrapping_add(crc32(&self.partition_name.as_bytes()));
-	crc
+	let mut crc = crc32(&self.partition_type_guid.to_bytes());
+	crc = crc.wrapping_add(crc32(&self.unique_partition_guid.to_bytes()));
+	#[cfg(target_endian = "little")]
+	{
+	    crc = crc.wrapping_add(crc32(&self.starting_lba.to_le_bytes()));
+	    crc = crc.wrapping_add(crc32(&self.ending_lba.to_le_bytes()));
+	    crc = crc.wrapping_add(crc32(&self.attributes.to_le_bytes()));
+	    crc = crc.wrapping_add(crc32(&self.partition_name.as_bytes()));
+	    crc
+	}
+	#[cfg(target_endian = "big")]
+	{
+	    crc = crc.wrapping_add(crc32(&self.starting_lba.to_be_bytes()));
+	    crc = crc.wrapping_add(crc32(&self.ending_lba.to_be_bytes()));
+	    crc = crc.wrapping_add(crc32(&self.attributes.to_be_bytes()));
+	    crc = crc.wrapping_add(crc32(&self.partition_name.as_bytes()));
+	    crc
+	}
     }
 
     fn write(&self, f: &mut File) -> Result<(), BobErr> {
-	f.write_all(self.partition_type_guid.as_bytes()).map_err(BobErr::IO)?;
-	f.write_all(self.unique_partition_guid.as_bytes()).map_err(BobErr::IO)?;
-	f.write_all(&self.starting_lba.to_ne_bytes()).map_err(BobErr::IO)?;
-	f.write_all(&self.ending_lba.to_ne_bytes()).map_err(BobErr::IO)?;
-	f.write_all(&self.attributes.to_ne_bytes()).map_err(BobErr::IO)?;
-	f.write_all(&self.partition_name.as_bytes()).map_err(BobErr::IO)?;
+	f.write_all(&self.partition_type_guid.to_bytes()).map_err(BobErr::IO)?;
+	f.write_all(&self.unique_partition_guid.to_bytes()).map_err(BobErr::IO)?;
+	#[cfg(target_endian = "little")]
+	{
+	    f.write_all(&self.starting_lba.to_le_bytes()).map_err(BobErr::IO)?;
+	    f.write_all(&self.ending_lba.to_le_bytes()).map_err(BobErr::IO)?;
+	    f.write_all(&self.attributes.to_le_bytes()).map_err(BobErr::IO)?;
+	}
+	#[cfg(target_endian = "big")]
+	{
+	    f.write_all(&self.starting_lba.to_be_bytes()).map_err(BobErr::IO)?;
+	    f.write_all(&self.ending_lba.to_be_bytes()).map_err(BobErr::IO)?;
+	    f.write_all(&self.attributes.to_be_bytes()).map_err(BobErr::IO)?;
+	}
+	let name_bytes = self.partition_name.as_bytes();
+	f.write_all(&name_bytes).map_err(BobErr::IO)?;
+
+	// TODO: check can be pushed up to the arg parsing
+	if name_bytes.len() > PARTITION_NAME_MAX_BYTES {
+	    return Err(BobErr::PartitionNameTooLong);
+	}
+
+	let remaining: i64 = (PARTITION_NAME_MAX_BYTES - name_bytes.len()) as i64;
+	f.seek(SeekFrom::Current(remaining)).map_err(BobErr::IO)?;
+
 	Ok(())
     }
 }

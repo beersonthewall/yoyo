@@ -73,11 +73,7 @@ impl DiskImgBuilder {
 	let image_size = self.image_size.expect("To have an image size provided");
 	Self::write_protective_mbr_header(&mut f, image_size)?;	
 	// TODO: validate the partiton offsets given make any sense
-	let pos = f.stream_position().unwrap();
-	println!("Pos: {}", pos);
 	Self::write_gpt_partition_table(&mut f, image_size, &self.partitions)?;
-	let pos = f.stream_position().unwrap();
-	println!("Pos: {}", pos);
 	// TODO: Push file cursor past partition space in the image
 	// TODO: write the alternate partition table
 
@@ -158,13 +154,8 @@ impl DiskImgBuilder {
 	header.crc();
 	header.write(f)?;
 
-	let pos = f.stream_position().unwrap();
-	println!("pos: {pos}");
-
 	for p in partition_entries {
 	    p.write(f)?;
-	    let pos = f.stream_position().unwrap();
-	    println!("pos: {pos}")
 	}
 
 	Ok(())

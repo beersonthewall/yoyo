@@ -97,6 +97,14 @@ impl DiskImgBuilder {
 
 	let mut first_record = PartitionRecord::new();
 	first_record.starting_chs = [0x00, 0x02, 0x00];
+
+	let ending_chs = size / LOGICAL_BLOCK_SZ;
+	if ending_chs >= 0xFF_FF_FF {
+	    first_record.ending_chs = [0xFF, 0xFF, 0xFF];
+	} else {
+	    first_record.ending_chs = [(ending_chs | 0xFF) as u8, ((ending_chs >> 8) | 0xFF) as u8, ((ending_chs >> 16) | 0xFF) as u8];
+	}
+
 	first_record.os_type = 0xEE;
 	first_record.starting_lba = 0x00000001;
 	first_record.size_in_lba = (size / LOGICAL_BLOCK_SZ) as u32;

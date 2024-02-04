@@ -10,6 +10,13 @@ use crate::guid::Guid;
 const LOGICAL_BLOCK_SZ: usize = 512;
 const PARTITION_NAME_MAX_BYTES: usize = 72;
 
+pub struct GptImage {
+    hdr: GptHeader,
+    bkp_hdr: GptHeader,
+    pentry: Vec<GptPartitionEntry>,
+    fd: File,
+}
+
 pub struct DiskImgBuilder {
     image_size: Option<usize>,
     output: Option<String>,
@@ -46,7 +53,7 @@ impl DiskImgBuilder {
 
 
     /// Build the disk image file.
-    pub fn build(self) -> Result<(), BobErr> {
+    pub fn build(self) -> Result<GptImage, BobErr> {
 	// Default to append the current time since UNIX EPOCH to avoid overwriting any old
 	// images using the default filename by accident.
 	let filename = if let Some(f) = self.output {
@@ -58,24 +65,31 @@ impl DiskImgBuilder {
 	    format!("disk_image_{suffix}.img")
 	};
 	
-	let mut f = File::options()
+	let f = File::options()
 	    .write(true)
 	    .create(true)
 	    .open(filename).map_err(BobErr::IO)?;
 
+	let mut gpt = GptImage {
+	    hdr: GptHeader::new(),
+	    bkp_hdr: GptHeader::new(),
+	    pentry: Vec::new(),
+	    fd: f
+	};
+
 	if let Some(image_size) = self.image_size {
-	    f.set_len(image_size as u64).map_err(BobErr::IO)?;
+	    gpt.fd.set_len(image_size as u64).map_err(BobErr::IO)?;
 	} else {
 	    // This is already enforced by clap, just being careful.
 	    return Err(BobErr::MissingArgument);
 	}
 
 	let image_size = self.image_size.expect("To have an image size provided");
-	Self::write_protective_mbr_header(&mut f, image_size)?;	
+	Self::write_protective_mbr_header(&mut gpt.fd, image_size)?;	
 	// TODO: validate the partiton offsets given make any sense
-	Self::write_gpt_partition_table(&mut f, image_size, &self.partitions)?;
+	Self::write_gpt_partition_table(&mut gpt, image_size, &self.partitions)?;
 
-	Ok(())
+	Ok(gpt)
     }
 
     /// Write the Protective MBR Header.
@@ -129,8 +143,8 @@ impl DiskImgBuilder {
     /// Write the partition table
     /// Header reference: https://uefi.org/specs/UEFI/2.10/05_GUID_Partition_Table_Format.html#gpt-header
     /// Entry reference: https://uefi.org/specs/UEFI/2.10/05_GUID_Partition_Table_Format.html#gpt-partition-entry-array
-    fn write_gpt_partition_table(f: &mut File, image_size: usize, partitions: &[Partition]) -> Result<(), BobErr> {
-	let partition_entries = &partitions.iter().map(|p| GptPartitionEntry::from_partition(p)).collect::<Vec<_>>();
+    fn write_gpt_partition_table(gpt: &mut GptImage, image_size: usize, partitions: &[Partition]) -> Result<(), BobErr> {
+	let partition_entries = partitions.iter().map(|p| GptPartitionEntry::from_partition(p)).collect::<Vec<_>>();
 
 	let mut header = GptHeader::new();
 
@@ -156,24 +170,29 @@ impl DiskImgBuilder {
 	header.partition_entry_array_crc32 = crc;
 
 	header.crc();
-	header.write(f)?;
+	header.write(&mut gpt.fd)?;
 
-	for p in partition_entries {
-	    p.write(f)?;
+	gpt.hdr = header;
+	gpt.pentry = partition_entries;
+
+	for p in &gpt.pentry {
+	    p.write(&mut gpt.fd)?;
 	}
 
 	let backup_table_lba = size_in_blocks - 33;
-	f.seek(SeekFrom::Start(backup_table_lba * LOGICAL_BLOCK_SZ as u64)).map_err(BobErr::IO)?;
+	gpt.fd.seek(SeekFrom::Start(backup_table_lba * LOGICAL_BLOCK_SZ as u64)).map_err(BobErr::IO)?;
 
-	for p in partition_entries {
-	    p.write(f)?;
+	for p in &gpt.pentry {
+	    p.write(&mut gpt.fd)?;
 	}
 
 	// subtract 2, 1 for the last bock, 1 to adjust for 0-based indexing
 	let last_block_number = size_in_blocks - 1;
-	f.seek(SeekFrom::Start(last_block_number * LOGICAL_BLOCK_SZ as u64)).map_err(BobErr::IO)?;
+	gpt.fd.seek(SeekFrom::Start(last_block_number * LOGICAL_BLOCK_SZ as u64)).map_err(BobErr::IO)?;
 
-	header.write(f)?;
+	gpt.bkp_hdr = gpt.hdr.clone();
+	gpt.bkp_hdr.partition_entry_lba = backup_table_lba;
+	gpt.bkp_hdr.write(&mut gpt.fd)?;
 
 	Ok(())
     }
@@ -296,6 +315,7 @@ impl PartitionRecord {
     }
 }
 
+#[derive(Clone, Copy)]
 struct GptHeader {
     signature: u64,
     revision: u32,

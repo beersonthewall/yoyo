@@ -5,7 +5,7 @@
 /// for any other uses besides in GPT disks.
 /// Apple also notes this: https://developer.apple.com/library/archive/technotes/tn2166/_index.html#//apple_ref/doc/uid/DTS10003927-CH1-SUBSECTION11
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub struct Guid {
     time_low: u32,
     time_mid: [u8;2],

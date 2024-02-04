@@ -1,5 +1,6 @@
 mod cmd;
 mod err;
+mod fat;
 mod gpt;
 mod guid;
 
@@ -7,7 +8,7 @@ use clap::{
     arg, command, Arg, Command, value_parser,
     error::ErrorKind,
 };
-use cmd::create_disk_image;
+use cmd::{create_disk_image, write_fat_fs};
 use err::BobErr;
 use gpt::{Partition, PartitionBuilder, PartitionType};
 
@@ -82,7 +83,7 @@ fn main() -> Result<(), BobErr> {
 	.get_matches();
 
     if let Some(sub_matches) = matches.subcommand_matches("create") {
-        return create_disk_image(sub_matches);
+        return write_fat_fs(create_disk_image(sub_matches)?);
     }
 
     if let Some(_sub_matches) = matches.subcommand_matches("update") {

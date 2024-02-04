@@ -1,9 +1,10 @@
-use crate::err::BobErr;
-use crate::gpt::{DiskImgBuilder, Partition};
 use clap::ArgMatches;
 
+use crate::err::BobErr;
+use crate::gpt::{DiskImgBuilder, Partition, GptImage};
+
 /// Creates a disk image from the provided argument matches.
-pub fn create_disk_image(create_matches: &ArgMatches) -> Result<(), BobErr> {
+pub fn create_disk_image(create_matches: &ArgMatches) -> Result<GptImage, BobErr> {
     let mut img_builder = DiskImgBuilder::new();
 
     if let Some(output_filename) = create_matches.get_one::<String>("output") {
@@ -21,4 +22,9 @@ pub fn create_disk_image(create_matches: &ArgMatches) -> Result<(), BobErr> {
     }
 
     img_builder.build()
+}
+
+/// Writes FAT filesystem to the EFI system partition on the GPT disc image.
+pub fn write_fat_fs(_gpt: GptImage) -> Result<(), BobErr> {
+    Ok(())
 }

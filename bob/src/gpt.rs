@@ -293,24 +293,12 @@ impl PartitionRecord {
     }
 
     fn write(&self, f: &mut File) -> Result<(), BobErr> {
-	#[cfg(target_endian = "little")]
-	{
-	    f.write_all(&self.boot_indicator.to_le_bytes()).map_err(BobErr::IO)?;
-	    f.write_all(&self.starting_chs).map_err(BobErr::IO)?;
-	    f.write_all(&self.os_type.to_le_bytes()).map_err(BobErr::IO)?;
-	    f.write_all(&self.ending_chs).map_err(BobErr::IO)?;
-	    f.write_all(&self.starting_lba.to_le_bytes()).map_err(BobErr::IO)?;
-	    f.write_all(&self.size_in_lba.to_le_bytes()).map_err(BobErr::IO)?;
-	}
-	#[cfg(target_endian = "big")]
-	{
-	    f.write_all(&self.boot_indicator.to_be_bytes()).map_err(BobErr::IO)?;
-	    f.write_all(&self.starting_chs).map_err(BobErr::IO)?;
-	    f.write_all(&self.os_type.to_be_bytes()).map_err(BobErr::IO)?;
-	    f.write_all(&self.ending_chs).map_err(BobErr::IO)?;
-	    f.write_all(&self.starting_lba.to_be_bytes()).map_err(BobErr::IO)?;
-	    f.write_all(&self.size_in_lba.to_be_bytes()).map_err(BobErr::IO)?;
-	}	
+	f.write_all(&self.boot_indicator.to_le_bytes()).map_err(BobErr::IO)?;
+	f.write_all(&self.starting_chs).map_err(BobErr::IO)?;
+	f.write_all(&self.os_type.to_le_bytes()).map_err(BobErr::IO)?;
+	f.write_all(&self.ending_chs).map_err(BobErr::IO)?;
+	f.write_all(&self.starting_lba.to_le_bytes()).map_err(BobErr::IO)?;
+	f.write_all(&self.size_in_lba.to_le_bytes()).map_err(BobErr::IO)?;
 	Ok(())
     }
 }
@@ -355,41 +343,20 @@ impl GptHeader {
     }
 
     fn write(&self, f: &mut File) -> Result<(), BobErr> {
-	#[cfg(target_endian = "little")]
-	{
-	    f.write_all(&self.signature.to_le_bytes()).map_err(BobErr::IO)?;
-	    f.write_all(&self.revision.to_le_bytes()).map_err(BobErr::IO)?;
-	    f.write_all(&self.header_sz.to_le_bytes()).map_err(BobErr::IO)?;
-	    f.write_all(&self.header_crc32.to_le_bytes()).map_err(BobErr::IO)?;
-	    f.write_all(&self.reserved.to_le_bytes()).map_err(BobErr::IO)?;
-	    f.write_all(&self.my_lba.to_le_bytes()).map_err(BobErr::IO)?;
-	    f.write_all(&self.alt_lba.to_le_bytes()).map_err(BobErr::IO)?;
-	    f.write_all(&self.first_usable_lba.to_le_bytes()).map_err(BobErr::IO)?;
-	    f.write_all(&self.last_usable_lba.to_le_bytes()).map_err(BobErr::IO)?;
-	    f.write_all(&self.disk_guid.to_bytes()).map_err(BobErr::IO)?;
-	    f.write_all(&self.partition_entry_lba.to_le_bytes()).map_err(BobErr::IO)?;
-	    f.write_all(&self.num_partition_entries.to_le_bytes()).map_err(BobErr::IO)?;
-	    f.write_all(&self.partition_entry_sz.to_le_bytes()).map_err(BobErr::IO)?;
-	    f.write_all(&self.partition_entry_array_crc32.to_le_bytes()).map_err(BobErr::IO)?;
-	}
-	#[cfg(target_endian = "big")]
-	{
-	    f.write_all(&self.signature.to_be_bytes()).map_err(BobErr::IO)?;
-	    f.write_all(&self.revision.to_be_bytes()).map_err(BobErr::IO)?;
-	    f.write_all(&self.header_sz.to_be_bytes()).map_err(BobErr::IO)?;
-	    f.write_all(&self.header_crc32.to_be_bytes()).map_err(BobErr::IO)?;
-	    f.write_all(&self.reserved.to_be_bytes()).map_err(BobErr::IO)?;
-	    f.write_all(&self.my_lba.to_be_bytes()).map_err(BobErr::IO)?;
-	    f.write_all(&self.alt_lba.to_be_bytes()).map_err(BobErr::IO)?;
-	    f.write_all(&self.first_usable_lba.to_be_bytes()).map_err(BobErr::IO)?;
-	    f.write_all(&self.last_usable_lba.to_be_bytes()).map_err(BobErr::IO)?;
-	    f.write_all(self.disk_guid.as_bytes()).map_err(BobErr::IO)?;
-	    f.write_all(&self.partition_entry_lba.to_be_bytes()).map_err(BobErr::IO)?;
-	    f.write_all(&self.num_partition_entries.to_be_bytes()).map_err(BobErr::IO)?;
-	    f.write_all(&self.partition_entry_sz.to_be_bytes()).map_err(BobErr::IO)?;
-	    f.write_all(&self.partition_entry_array_crc32.to_be_bytes()).map_err(BobErr::IO)?;
-	}
-
+	f.write_all(&self.signature.to_le_bytes()).map_err(BobErr::IO)?;
+	f.write_all(&self.revision.to_le_bytes()).map_err(BobErr::IO)?;
+	f.write_all(&self.header_sz.to_le_bytes()).map_err(BobErr::IO)?;
+	f.write_all(&self.header_crc32.to_le_bytes()).map_err(BobErr::IO)?;
+	f.write_all(&self.reserved.to_le_bytes()).map_err(BobErr::IO)?;
+	f.write_all(&self.my_lba.to_le_bytes()).map_err(BobErr::IO)?;
+	f.write_all(&self.alt_lba.to_le_bytes()).map_err(BobErr::IO)?;
+	f.write_all(&self.first_usable_lba.to_le_bytes()).map_err(BobErr::IO)?;
+	f.write_all(&self.last_usable_lba.to_le_bytes()).map_err(BobErr::IO)?;
+	f.write_all(&self.disk_guid.to_bytes()).map_err(BobErr::IO)?;
+	f.write_all(&self.partition_entry_lba.to_le_bytes()).map_err(BobErr::IO)?;
+	f.write_all(&self.num_partition_entries.to_le_bytes()).map_err(BobErr::IO)?;
+	f.write_all(&self.partition_entry_sz.to_le_bytes()).map_err(BobErr::IO)?;
+	f.write_all(&self.partition_entry_array_crc32.to_le_bytes()).map_err(BobErr::IO)?;
 	f.seek(SeekFrom::Current((LOGICAL_BLOCK_SZ as i64) - 92)).map_err(BobErr::IO)?;
 
 	Ok(())

@@ -27,7 +27,7 @@
   4) create some FS image and write to /boot partition my linux machine uses ext4,
      but I think maybe I should just also use FAT because it's "Simple" (to implement)?
 
-**** TODO Implement GPT disk image creation
+**** DONE Implement GPT disk image creation
 - Follow the spec from here:
   https://uefi.org/specs/UEFI/2.10/05_GUID_Partition_Table_Format.html#gpt-header
 Some complicated sub-tasks:

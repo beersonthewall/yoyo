@@ -106,6 +106,8 @@ impl DiskImgBuilder {
 	first_record.size_in_lba = (size / LOGICAL_BLOCK_SZ) as u32;
 	first_record.write(f)?;
 
+	// TODO: don't need to do this work, can just seek past it since by creating
+	// the file to a specific size it'll be zero-initialized.
 	let zero = PartitionRecord::new();
 	zero.write(f)?;
 	zero.write(f)?;
@@ -382,6 +384,7 @@ impl GptHeader {
     }
 }
 
+#[derive(Debug)]
 struct GptPartitionEntry {
     partition_type_guid: Guid,
     unique_partition_guid: Guid,

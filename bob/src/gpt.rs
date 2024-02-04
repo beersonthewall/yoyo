@@ -146,9 +146,7 @@ impl DiskImgBuilder {
 	    return Err(BobErr::ImageTooSmall);
 	}
 
-	// Subtracts 33 to reserve enough logical blocks for the backup partition table header (1)
-	// and partiton entry array (32).
-	header.last_usable_lba =  size_in_blocks - 33;
+	header.last_usable_lba =  size_in_blocks - 34;
 
 	// Partiton table information
 	header.partition_entry_lba = 2;

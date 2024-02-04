@@ -164,6 +164,19 @@ impl DiskImgBuilder {
 	    p.write(f)?;
 	}
 
+	let backup_table_lba = size_in_blocks - 33;
+	f.seek(SeekFrom::Start(backup_table_lba * LOGICAL_BLOCK_SZ as u64)).map_err(BobErr::IO)?;
+
+	for p in partition_entries {
+	    p.write(f)?;
+	}
+
+	// subtract 2, 1 for the last bock, 1 to adjust for 0-based indexing
+	let last_block_number = size_in_blocks - 1;
+	f.seek(SeekFrom::Start(last_block_number * LOGICAL_BLOCK_SZ as u64)).map_err(BobErr::IO)?;
+
+	header.write(f)?;
+
 	Ok(())
     }
 }

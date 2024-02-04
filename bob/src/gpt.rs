@@ -1,4 +1,3 @@
-use std::ffi::CString;
 use std::fs::File;
 use std::io::prelude::*;
 use std::io::SeekFrom;
@@ -264,9 +263,9 @@ impl PartitionType {
 	}
     }
 
-    fn name(&self) -> CString {
+    fn name(&self) -> String {
 	match self {
-	    Self::EFISystem => CString::new("EFI System Partition").expect("No null byte, not possible"),
+	    Self::EFISystem => String::from("EFI system partition"),
 	}
     }
 }
@@ -392,7 +391,7 @@ struct GptPartitionEntry {
     starting_lba: u64,
     ending_lba: u64,
     attributes: u64,
-    partition_name: CString,
+    partition_name: String,
 }
 
 impl GptPartitionEntry {
@@ -432,7 +431,7 @@ impl GptPartitionEntry {
 	f.write_all(&self.starting_lba.to_le_bytes()).map_err(BobErr::IO)?;
 	f.write_all(&self.ending_lba.to_le_bytes()).map_err(BobErr::IO)?;
 	f.write_all(&self.attributes.to_le_bytes()).map_err(BobErr::IO)?;
-	let name_bytes = self.partition_name.as_bytes();
+	let name_bytes: Vec<u8> = str::encode_utf16(&self.partition_name).map(|c| c.to_le_bytes()).flatten().collect();
 	f.write_all(&name_bytes).map_err(BobErr::IO)?;
 
 	// TODO: check can be pushed up to the arg parsing

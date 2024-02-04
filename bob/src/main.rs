@@ -1,5 +1,4 @@
 mod cmd;
-mod crc;
 mod err;
 mod gpt;
 mod guid;

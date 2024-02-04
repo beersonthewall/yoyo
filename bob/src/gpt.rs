@@ -3,8 +3,8 @@ use std::fs::File;
 use std::io::prelude::*;
 use std::io::SeekFrom;
 use std::time::SystemTime;
+use crc32fast::Hasher;
 use crate::err::BobErr;
-use crate::crc::crc32;
 use crate::guid::Guid;
 
 const LOGICAL_BLOCK_SZ: usize = 512;
@@ -375,23 +375,26 @@ impl GptHeader {
 	Ok(())
     }
 
-    #[cfg(target_endian = "little")]
     fn crc(&mut self) {
+	let mut h = Hasher::new();
 	self.header_crc32 = 0;
-	self.header_crc32 = crc32(&self.signature.to_le_bytes());
-	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.revision.to_le_bytes()));
-	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.header_sz.to_le_bytes()));
-	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.header_crc32.to_le_bytes()));
-	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.reserved.to_le_bytes()));
-	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.my_lba.to_le_bytes()));
-	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.alt_lba.to_le_bytes()));
-	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.first_usable_lba.to_le_bytes()));
-	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.last_usable_lba.to_le_bytes()));
-	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.disk_guid.to_bytes()));
-	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.partition_entry_lba.to_le_bytes()));
-	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.num_partition_entries.to_le_bytes()));
-	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.partition_entry_sz.to_le_bytes()));
-	self.header_crc32 = self.header_crc32.wrapping_add(crc32(&self.partition_entry_array_crc32.to_le_bytes()));
+
+	h.update(&self.signature.to_le_bytes());
+	h.update(&self.revision.to_le_bytes());
+	h.update(&self.header_sz.to_le_bytes());
+	h.update(&self.header_crc32.to_le_bytes());
+	h.update(&self.reserved.to_le_bytes());
+	h.update(&self.my_lba.to_le_bytes());
+	h.update(&self.alt_lba.to_le_bytes());
+	h.update(&self.first_usable_lba.to_le_bytes());
+	h.update(&self.last_usable_lba.to_le_bytes());
+	h.update(&self.disk_guid.to_bytes());
+	h.update(&self.partition_entry_lba.to_le_bytes());
+	h.update(&self.num_partition_entries.to_le_bytes());
+	h.update(&self.partition_entry_sz.to_le_bytes());
+	h.update(&self.partition_entry_array_crc32.to_le_bytes());
+
+	self.header_crc32 = h.finalize();
     }
 }
 
@@ -426,41 +429,22 @@ impl GptPartitionEntry {
     }
 
     fn crc(&self) -> u32 {
-	let mut crc = crc32(&self.partition_type_guid.to_bytes());
-	crc = crc.wrapping_add(crc32(&self.unique_partition_guid.to_bytes()));
-	#[cfg(target_endian = "little")]
-	{
-	    crc = crc.wrapping_add(crc32(&self.starting_lba.to_le_bytes()));
-	    crc = crc.wrapping_add(crc32(&self.ending_lba.to_le_bytes()));
-	    crc = crc.wrapping_add(crc32(&self.attributes.to_le_bytes()));
-	    crc = crc.wrapping_add(crc32(&self.partition_name.as_bytes()));
-	    crc
-	}
-	#[cfg(target_endian = "big")]
-	{
-	    crc = crc.wrapping_add(crc32(&self.starting_lba.to_be_bytes()));
-	    crc = crc.wrapping_add(crc32(&self.ending_lba.to_be_bytes()));
-	    crc = crc.wrapping_add(crc32(&self.attributes.to_be_bytes()));
-	    crc = crc.wrapping_add(crc32(&self.partition_name.as_bytes()));
-	    crc
-	}
+	let mut h = Hasher::new();
+	h.update(&self.partition_type_guid.to_bytes());
+	h.update(&self.unique_partition_guid.to_bytes());
+	h.update(&self.starting_lba.to_le_bytes());
+	h.update(&self.ending_lba.to_le_bytes());
+	h.update(&self.attributes.to_le_bytes());
+	h.update(&self.partition_name.as_bytes());
+	h.finalize()
     }
 
     fn write(&self, f: &mut File) -> Result<(), BobErr> {
 	f.write_all(&self.partition_type_guid.to_bytes()).map_err(BobErr::IO)?;
 	f.write_all(&self.unique_partition_guid.to_bytes()).map_err(BobErr::IO)?;
-	#[cfg(target_endian = "little")]
-	{
-	    f.write_all(&self.starting_lba.to_le_bytes()).map_err(BobErr::IO)?;
-	    f.write_all(&self.ending_lba.to_le_bytes()).map_err(BobErr::IO)?;
-	    f.write_all(&self.attributes.to_le_bytes()).map_err(BobErr::IO)?;
-	}
-	#[cfg(target_endian = "big")]
-	{
-	    f.write_all(&self.starting_lba.to_be_bytes()).map_err(BobErr::IO)?;
-	    f.write_all(&self.ending_lba.to_be_bytes()).map_err(BobErr::IO)?;
-	    f.write_all(&self.attributes.to_be_bytes()).map_err(BobErr::IO)?;
-	}
+	f.write_all(&self.starting_lba.to_le_bytes()).map_err(BobErr::IO)?;
+	f.write_all(&self.ending_lba.to_le_bytes()).map_err(BobErr::IO)?;
+	f.write_all(&self.attributes.to_le_bytes()).map_err(BobErr::IO)?;
 	let name_bytes = self.partition_name.as_bytes();
 	f.write_all(&name_bytes).map_err(BobErr::IO)?;
 

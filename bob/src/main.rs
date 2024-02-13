@@ -10,13 +10,13 @@ use clap::{
 };
 use cmd::{create_disk_image, write_fat_fs};
 use err::BobErr;
-use gpt::{Partition, PartitionBuilder, PartitionType};
+use gpt::{PartitionInput, PartitionBuilder, PartitionType};
 
 #[derive(Clone)]
 struct PartitionParser;
 
 impl clap::builder::TypedValueParser for PartitionParser {
-    type Value = Partition;
+    type Value = PartitionInput;
 
     fn parse_ref(
 	&self,

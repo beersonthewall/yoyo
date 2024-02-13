@@ -1,3 +1,12 @@
+use crate::err::BobErr;
+use crate::gpt::{Partition};
+
+struct FatMeta {
+    bpb: BPB,
+    ebr: ExtendedBootRecord,
+    fs_info: FSInfo,
+}
+
 /// BIOS Paramter Block
 struct BPB {
     jmp_short: [u8; 3],
@@ -42,3 +51,20 @@ struct FSInfo {
     trail_signature: u32,
 }
 
+struct FileAllocationTable {
+    
+}
+
+/// TODO: document
+pub fn format_as_fat(p: &mut Partition) -> Result<(), BobErr> {
+//    let meta = FatMeta::new(p.size());
+    Ok(())
+}
+
+/*impl FatMeta {
+    fn new(sz: usize) -> Self {
+	Self {
+	    
+	}
+    }
+}*/

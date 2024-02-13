@@ -5,4 +5,5 @@ pub enum BobErr {
     IO(std::io::Error),
     ImageTooSmall,
     PartitionNameTooLong,
+    NoEFISystemPartition,
 }

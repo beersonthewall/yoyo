@@ -12,14 +12,102 @@ const PARTITION_NAME_MAX_BYTES: usize = 72;
 pub struct GptImage {
     hdr: GptHeader,
     bkp_hdr: GptHeader,
-    pentry: Vec<GptPartitionEntry>,
+    pentry: Vec<Partition>,
     fd: File,
+}
+
+/// Represents a GPT partition
+pub struct Partition {
+    meta: GptPartitionEntry,
+    buf: Vec<u8>,
+}
+
+// Builders and input strutures
+
+/// Partitoion input data collected from the cmd line
+#[derive(Clone, Copy, Debug)]
+pub struct PartitionInput {
+    pt: PartitionType,
+    start_offset: usize,
+    end_offset: usize,
 }
 
 pub struct DiskImgBuilder {
     image_size: Option<usize>,
     output: Option<String>,
-    partitions: Vec<Partition>,
+    partitions: Vec<PartitionInput>,
+}
+
+pub struct PartitionBuilder {
+    pt: Option<PartitionType>,
+    start_offset: Option<usize>,
+    end_offset: Option<usize>,
+}
+
+// GPT Metadata structures
+
+#[derive(Clone, Copy)]
+struct GptHeader {
+    signature: u64,
+    revision: u32,
+    header_sz: u32,
+    header_crc32: u32,
+    reserved: u32,
+    my_lba: u64,
+    alt_lba: u64,
+    first_usable_lba: u64,
+    last_usable_lba: u64,
+    disk_guid: Guid,
+    partition_entry_lba: u64,
+    num_partition_entries: u32,
+    partition_entry_sz: u32,
+    partition_entry_array_crc32: u32,
+}
+
+#[derive(Debug)]
+struct GptPartitionEntry {
+    partition_type_guid: Guid,
+    unique_partition_guid: Guid,
+    starting_lba: u64,
+    ending_lba: u64,
+    attributes: u64,
+    partition_name: String,
+}
+
+struct PartitionRecord {
+    boot_indicator: u8,
+    starting_chs: [u8;3],
+    os_type: u8,
+    ending_chs: [u8;3],
+    starting_lba: u32,
+    size_in_lba: u32,
+}
+
+/// Partition Type GUID
+/// https://en.wikipedia.org/wiki/GUID_Partition_Table#Partition_type_GUIDs
+#[derive(Clone, Copy, Debug)]
+pub enum PartitionType {
+    EFISystem,
+}
+
+impl GptImage {
+    /// Returns a reference to the first partition
+    fn get_partition(&self, name: &str) -> Option<&Partition> {
+	let matches: Vec<_> = self.pentry.iter().filter(|p| p.name() == name).collect();
+	matches.into_iter().next()
+    }
+
+    /// Returns a mut reference to the first partition which matches the provided name
+    pub fn get_partition_mut(&mut self, name: &str) -> Option<&mut Partition> {
+	let matches: Vec<_> = self.pentry.iter_mut().filter(|p| p.name() == name).collect();
+	matches.into_iter().next()
+    }
+}
+
+impl Partition {
+    fn name(&self) -> &str {
+	&self.meta.partition_name
+    }
 }
 
 impl DiskImgBuilder {
@@ -45,7 +133,7 @@ impl DiskImgBuilder {
     }
 
     /// Adds a partition to create in the generated disk image.
-    pub fn partition(mut self, p: Partition) -> Self {
+    pub fn partition(mut self, p: PartitionInput) -> Self {
 	self.partitions.push(p);
         self
     }
@@ -142,7 +230,7 @@ impl DiskImgBuilder {
     /// Write the partition table
     /// Header reference: https://uefi.org/specs/UEFI/2.10/05_GUID_Partition_Table_Format.html#gpt-header
     /// Entry reference: https://uefi.org/specs/UEFI/2.10/05_GUID_Partition_Table_Format.html#gpt-partition-entry-array
-    fn write_gpt_partition_table(gpt: &mut GptImage, image_size: usize, partitions: &[Partition]) -> Result<(), BobErr> {
+    fn write_gpt_partition_table(gpt: &mut GptImage, image_size: usize, partitions: &[PartitionInput]) -> Result<(), BobErr> {
 	let partition_entries = partitions.iter().map(|p| GptPartitionEntry::from_partition(p)).collect::<Vec<_>>();
 
 	let mut header = GptHeader::new();
@@ -172,17 +260,17 @@ impl DiskImgBuilder {
 	header.write(&mut gpt.fd)?;
 
 	gpt.hdr = header;
-	gpt.pentry = partition_entries;
+	gpt.pentry = partition_entries.into_iter().map(|p| Partition { meta: p, buf: Vec::new() }).collect();
 
 	for p in &gpt.pentry {
-	    p.write(&mut gpt.fd)?;
+	    p.meta.write(&mut gpt.fd)?;
 	}
 
 	let backup_table_lba = size_in_blocks - 33;
 	gpt.fd.seek(SeekFrom::Start(backup_table_lba * LOGICAL_BLOCK_SZ as u64)).map_err(BobErr::IO)?;
 
 	for p in &gpt.pentry {
-	    p.write(&mut gpt.fd)?;
+	    p.meta.write(&mut gpt.fd)?;
 	}
 
 	// subtract 2, 1 for the last bock, 1 to adjust for 0-based indexing
@@ -195,20 +283,6 @@ impl DiskImgBuilder {
 
 	Ok(())
     }
-}
-
-/// A GPT Partition
-#[derive(Clone, Copy, Debug)]
-pub struct Partition {
-    pt: PartitionType,
-    start_offset: usize,
-    end_offset: usize,
-}
-
-pub struct PartitionBuilder {
-    pt: Option<PartitionType>,
-    start_offset: Option<usize>,
-    end_offset: Option<usize>,
 }
 
 impl PartitionBuilder {
@@ -235,24 +309,17 @@ impl PartitionBuilder {
 	self
     }
 
-    pub fn build(self) -> Result<Partition, BobErr> {
+    pub fn build(self) -> Result<PartitionInput, BobErr> {
 	if self.pt.is_none() || self.start_offset.is_none() || self.end_offset.is_none() {
 	    return Err(BobErr::PartitionParse);
 	}
 
-	Ok(Partition {
+	Ok(PartitionInput {
 	    pt: self.pt.unwrap(),
 	    start_offset: self.start_offset.unwrap(),
 	    end_offset: self.end_offset.unwrap()
 	})
     }
-}
-
-/// Partition Type GUID
-/// https://en.wikipedia.org/wiki/GUID_Partition_Table#Partition_type_GUIDs
-#[derive(Clone, Copy, Debug)]
-pub enum PartitionType {
-    EFISystem,
 }
 
 impl PartitionType {
@@ -263,20 +330,11 @@ impl PartitionType {
 	}
     }
 
-    fn name(&self) -> String {
+    pub fn name(&self) -> String {
 	match self {
 	    Self::EFISystem => String::from("EFI system partition"),
 	}
     }
-}
-
-struct PartitionRecord {
-    boot_indicator: u8,
-    starting_chs: [u8;3],
-    os_type: u8,
-    ending_chs: [u8;3],
-    starting_lba: u32,
-    size_in_lba: u32,
 }
 
 impl PartitionRecord {
@@ -300,24 +358,6 @@ impl PartitionRecord {
 	f.write_all(&self.size_in_lba.to_le_bytes()).map_err(BobErr::IO)?;
 	Ok(())
     }
-}
-
-#[derive(Clone, Copy)]
-struct GptHeader {
-    signature: u64,
-    revision: u32,
-    header_sz: u32,
-    header_crc32: u32,
-    reserved: u32,
-    my_lba: u64,
-    alt_lba: u64,
-    first_usable_lba: u64,
-    last_usable_lba: u64,
-    disk_guid: Guid,
-    partition_entry_lba: u64,
-    num_partition_entries: u32,
-    partition_entry_sz: u32,
-    partition_entry_array_crc32: u32,
 }
 
 impl GptHeader {
@@ -384,19 +424,9 @@ impl GptHeader {
     }
 }
 
-#[derive(Debug)]
-struct GptPartitionEntry {
-    partition_type_guid: Guid,
-    unique_partition_guid: Guid,
-    starting_lba: u64,
-    ending_lba: u64,
-    attributes: u64,
-    partition_name: String,
-}
-
 impl GptPartitionEntry {
 
-    fn from_partition(p: &Partition) -> Self {
+    fn from_partition(p: &PartitionInput) -> Self {
 	let partition_type_guid = p.pt.uuid();
 	let starting_lba = (p.start_offset / LOGICAL_BLOCK_SZ) as u64;
 	let ending_lba = (p.end_offset / LOGICAL_BLOCK_SZ) as u64;

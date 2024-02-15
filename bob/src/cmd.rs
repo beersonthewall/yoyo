@@ -25,12 +25,12 @@ pub fn create_disk_image(create_matches: &ArgMatches) -> Result<GptImage, BobErr
 }
 
 /// Writes FAT filesystem to the EFI system partition on the GPT disc image.
-pub fn write_fat_fs(gpt: GptImage) -> Result<(), BobErr> {
-    let efi_system_partition = if let Some(p) = gpt.get_partition_mut(&PartitionType::EFISystem.name()) {
+pub fn write_fat_fs(gpt: &mut GptImage) -> Result<(), BobErr> {
+    let mut efi_system_partition = if let Some(p) = gpt.get_partition_view(&PartitionType::EFISystem.name()) {
 	p
     } else {
 	return Err(BobErr::NoEFISystemPartition);
     };
-    crate::fat::format_as_fat(efi_system_partition)
-}
 
+    crate::fat::format_as_fat(&mut efi_system_partition)
+}

@@ -1,6 +1,14 @@
 use std::fs::File;
 use std::io::prelude::*;
-use std::io::SeekFrom;
+use std::{
+    io,
+    io::{
+	SeekFrom,
+	Write,
+	Seek,
+	ErrorKind
+    }
+};
 use std::time::SystemTime;
 use crc32fast::Hasher;
 use crate::err::BobErr;
@@ -12,14 +20,23 @@ const PARTITION_NAME_MAX_BYTES: usize = 72;
 pub struct GptImage {
     hdr: GptHeader,
     bkp_hdr: GptHeader,
-    pentry: Vec<Partition>,
+    pentry: Vec<GptPartitionEntry>,
     fd: File,
 }
 
-/// Represents a GPT partition
-pub struct Partition {
-    meta: GptPartitionEntry,
-    buf: Vec<u8>,
+pub trait Partition: Write + Seek {
+    fn ptype(&self) -> PartitionType;
+    fn name(&self) -> &str;
+    fn size(&self) -> usize;
+}
+
+/// A 'view' into a partition. Allows for reading and writing to
+/// only the given partition specified by the GptPartitonEntry
+/// without having access to other parts of the GptImage.
+pub struct PartitionView<'a> {
+    meta: &'a GptPartitionEntry,
+    offset: u64,
+    fd: &'a mut File,
 }
 
 // Builders and input strutures
@@ -92,21 +109,77 @@ pub enum PartitionType {
 
 impl GptImage {
     /// Returns a reference to the first partition
-    fn get_partition(&self, name: &str) -> Option<&Partition> {
-	let matches: Vec<_> = self.pentry.iter().filter(|p| p.name() == name).collect();
-	matches.into_iter().next()
-    }
-
-    /// Returns a mut reference to the first partition which matches the provided name
-    pub fn get_partition_mut(&mut self, name: &str) -> Option<&mut Partition> {
-	let matches: Vec<_> = self.pentry.iter_mut().filter(|p| p.name() == name).collect();
-	matches.into_iter().next()
+    pub fn get_partition_view(&mut self, name: &str) -> Option<PartitionView> {
+	let matches: Vec<_> = self.pentry.iter().filter(|p| &p.partition_name == name).collect();
+	if let Some(meta) = matches.into_iter().next() {
+	    Some(PartitionView::new(&mut self.fd, meta))
+	} else {
+	    None
+	}
     }
 }
 
-impl Partition {
+impl<'a> PartitionView<'a> {
+    fn new(fd: &'a mut File, meta: &'a GptPartitionEntry) -> Self {
+	Self {
+	    fd,
+	    meta,
+	    offset: 0,
+	}
+    }
+}
+
+impl<'a> Partition for PartitionView<'a> {
     fn name(&self) -> &str {
 	&self.meta.partition_name
+    }
+
+    fn size(&self) -> usize {
+	(self.meta.ending_lba - self.meta.starting_lba) as usize * LOGICAL_BLOCK_SZ
+    }
+
+    fn ptype(&self) -> PartitionType {
+	// TODO: not this
+	PartitionType::EFISystem
+    }
+}
+
+impl<'a> Write for PartitionView<'a> {
+
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+	let base = self.meta.starting_lba * LOGICAL_BLOCK_SZ as u64;
+	let size = (self.meta.ending_lba * LOGICAL_BLOCK_SZ as u64) - base;
+
+	let current_pos = self.fd.stream_position()?;
+
+	if current_pos < base || current_pos >= base + size {
+	    self.fd.seek(SeekFrom::Start(base + self.offset))?;
+	}
+
+	let space_remaining = size - self.offset;
+	if buf.len() as u64 > space_remaining {
+	    return Err(std::io::Error::new(ErrorKind::UnexpectedEof, "Cursor would pass partition end writing this buffer."));
+	}
+
+	let written = self.fd.write(buf)?;
+	self.offset += written as u64;
+
+	Ok(written)
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+	self.fd.flush()
+    }
+}
+
+impl<'a> Seek for PartitionView<'a> {
+    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
+	match pos {
+	    SeekFrom::Current(offset) => {},
+	    SeekFrom::Start(offset) => {},
+	    SeekFrom::End(offset) => {}
+	}
+	Ok(1)
     }
 }
 
@@ -260,17 +333,17 @@ impl DiskImgBuilder {
 	header.write(&mut gpt.fd)?;
 
 	gpt.hdr = header;
-	gpt.pentry = partition_entries.into_iter().map(|p| Partition { meta: p, buf: Vec::new() }).collect();
+	gpt.pentry = partition_entries;
 
 	for p in &gpt.pentry {
-	    p.meta.write(&mut gpt.fd)?;
+	    p.write(&mut gpt.fd)?;
 	}
 
 	let backup_table_lba = size_in_blocks - 33;
 	gpt.fd.seek(SeekFrom::Start(backup_table_lba * LOGICAL_BLOCK_SZ as u64)).map_err(BobErr::IO)?;
 
 	for p in &gpt.pentry {
-	    p.meta.write(&mut gpt.fd)?;
+	    p.write(&mut gpt.fd)?;
 	}
 
 	// subtract 2, 1 for the last bock, 1 to adjust for 0-based indexing

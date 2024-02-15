@@ -83,7 +83,8 @@ fn main() -> Result<(), BobErr> {
 	.get_matches();
 
     if let Some(sub_matches) = matches.subcommand_matches("create") {
-        return write_fat_fs(create_disk_image(sub_matches)?);
+	let mut img = create_disk_image(sub_matches)?;
+        return write_fat_fs(&mut img);
     }
 
     if let Some(_sub_matches) = matches.subcommand_matches("update") {

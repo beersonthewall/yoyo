@@ -91,5 +91,5 @@ fn main() -> Result<(), BobErr> {
         todo!("Updating GPT disk images is not yet implemented :(");
     }
 
-    return Ok(());
+    Ok(())
 }

@@ -7,6 +7,9 @@ One day I'll be a real operating system :)
 You'll need:
 - rust / rustup
 - qemu
+- mtools
+- parted
+- OVMF
 
 I am building on Linux x86_64, have not tested building on any other architectures or operating systems.
 

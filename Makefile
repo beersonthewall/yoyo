@@ -21,6 +21,7 @@ yoyo.img: build
 	mmd -i boot-part.img ::efi
 	mmd -i boot-part.img /efi/boot
 	mcopy -D o -i boot-part.img target/x86_64-unknown-uefi/debug/bootloader.efi ::/efi/boot/BOOTx64.efi
+	mcopy -D o -i boot-part.img target/x86_64-unknown-none/debug/kernel ::/efi/boot/kernel
 	dd if=boot-part.img of=yoyo.img bs=512 count=91669 seek=2048 conv=notrunc
 
 run:

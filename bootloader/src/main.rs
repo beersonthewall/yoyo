@@ -11,6 +11,10 @@ use uefi::{
 	File,
     },
     data_types::CStr16,
+    table::boot::{
+	MemoryType,
+	MemoryMap,
+    },
 };
 
 const KERNEL_PATH: &'static str = "\\efi\\boot\\kernel";
@@ -38,5 +42,14 @@ fn load_kernel(image_handle: Handle, boot_services: &BootServices) -> Result<Sta
 fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
     uefi_services::init(&mut system_table).unwrap();
     let boot_services = system_table.boot_services();
+
+    let map_sz = boot_services.memory_map_size();
+    let buf_sz = map_sz.entry_size *  map_sz.map_size;
+
+    // TODO: What memory type?
+    let raw_buf = boot_services.allocate_pool(MemoryType::RESERVED, buf_sz).unwrap();
+    let mut buf: &mut [u8] = unsafe { core::slice::from_raw_parts_mut(raw_buf, buf_sz) };
+    let _mmap = boot_services.memory_map(&mut buf).unwrap();
+
     load_kernel(image_handle, boot_services).status()
 }

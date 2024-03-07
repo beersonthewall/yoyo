@@ -9,11 +9,11 @@ const EI_MAG1: usize = 1;
 const EI_MAG2: usize = 2;
 const EI_MAG3: usize = 3;
 const EI_CLASS: usize = 4;
-const EI_VERSION: usize = 4;
-const EI_OSABI: usize = 4;
-const EI_ABIVERSION: usize = 4;
-const EI_PAD: usize = 4;
-
+const EI_DATA: usize = 5;
+const EI_VERSION: usize = 6;
+const EI_OSABI: usize = 7;
+const EI_ABIVERSION: usize = 8;
+const EI_PAD: usize = 9;
 const E_IDENT_SZ: usize = 9;
 
 /// An ELF Binary File.
@@ -39,24 +39,20 @@ pub struct Header {
 #[derive(Debug)]
 pub enum ParseErr {
     MagicNumber,
+    EIClass,
+    InputBounds,
+}
+
+pub enum Endianness {
+    Big,
+    Little,
 }
 
 impl<'a> Elf<'a> {
 
     fn parse(bytes: &'a [u8]) -> Result<Elf<'a>, ParseErr> {
-	let mut e_ident = [0;E_IDENT_SZ];
-	e_ident.copy_from_slice(&bytes[EI_MAG0..E_IDENT_SZ]);
+	let header = Header::parse(bytes)?;
 
-	// TODO: from_ne_bytes is almost certainly not what I want
-
-	// Check ELF Magic Number
-	if &e_ident[EI_MAG0..(EI_MAG3+1)] != [0x7F, 0x45, 0x4C, 0x46] {
-	    return Err(ParseErr::MagicNumber);
-	}
-
-	let header = Header {
-	    e_ident,
-	};
 	Ok(Elf {
 	    bytes,
 	    header,
@@ -64,10 +60,87 @@ impl<'a> Elf<'a> {
     }
 }
 
+impl Header {
+    fn parse(bytes: &[u8]) -> Result<Header, ParseErr> {
+	let mut e_ident = [0;E_IDENT_SZ];
+	if let Some(s) = bytes.get(EI_MAG0..E_IDENT_SZ) {
+	    e_ident.copy_from_slice(&s);
+	} else {
+	    return Err(ParseErr::InputBounds);
+	}
+
+	// Check ELF Magic Number
+	if &e_ident[EI_MAG0..=EI_MAG3] != [0x7F, 0x45, 0x4C, 0x46] {
+	    return Err(ParseErr::MagicNumber);
+	}
+
+	// Only support 64bit ELF
+	let e_typ = e_ident[EI_CLASS];
+	if e_typ != 2 {
+	    return Err(ParseErr::EIClass);
+	}
+
+	Ok(Header {
+	    e_ident,
+	})
+    }
+}
+
 mod tests {
 
+    // It's being used, but rust analyzer / flycheck / _something_ complains.
+    #[allow(unused_imports)]
+    use super::*;
+
     #[test]
-    fn parse_elf() {
-	
+    fn parse_header() {
+	let mut header = [0;20];
+
+	header[EI_MAG0] = 0x7F;
+	header[EI_MAG1] = 0x45;
+	header[EI_MAG2] = 0x4c;
+	header[EI_MAG3] = 0x46;
+	header[EI_CLASS] = 2;
+	header[EI_DATA] = 1;
+
+	let _ = Elf::parse(&header).expect("things");
+    }
+
+    #[test]
+    fn bad_magic() {
+	let mut header = [0;20];
+
+	header[EI_MAG0] = 0x7F;
+	header[EI_MAG1] = 0x20; // <- Bad!
+	header[EI_MAG2] = 0x4c;
+	header[EI_MAG3] = 0x46;
+	header[EI_CLASS] = 2;
+	header[EI_DATA] = 1;
+
+	let result = Elf::parse(&header);
+	assert!(result.is_err());
+	assert!(matches!(result, Err(ParseErr::MagicNumber)));
+    }
+
+    #[test]
+    fn bad_endianness() {
+	let mut header = [0;20];
+
+	header[EI_MAG0] = 0x7F;
+	header[EI_MAG1] = 0x45;
+	header[EI_MAG2] = 0x4c;
+	header[EI_MAG3] = 0x46;
+	header[EI_CLASS] = 42; // <- Bad!
+	header[EI_DATA] = 1;
+
+	let result = Elf::parse(&header);
+	assert!(matches!(result, Err(ParseErr::EIClass)));
+    }
+
+    #[test]
+    fn e_ident_bounds() {
+	let header = [];
+	let result = Elf::parse(&header);
+	assert!(matches!(result, Err(ParseErr::InputBounds)));
     }
 }

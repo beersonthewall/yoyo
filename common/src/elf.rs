@@ -48,9 +48,9 @@ impl<'a> Elf<'a> {
 	e_ident.copy_from_slice(&bytes[EI_MAG0..E_IDENT_SZ]);
 
 	// TODO: from_ne_bytes is almost certainly not what I want
-	let magic_num = <[u8;4]>::try_from(&e_ident[EI_MAG0..(EI_MAG3+1)]).unwrap();
 
-	if magic_num != [0x7F, 0x45, 0x4C, 0x46] {
+	// Check ELF Magic Number
+	if &e_ident[EI_MAG0..(EI_MAG3+1)] != [0x7F, 0x45, 0x4C, 0x46] {
 	    return Err(ParseErr::MagicNumber);
 	}
 

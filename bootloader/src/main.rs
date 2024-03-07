@@ -9,13 +9,16 @@ use uefi::{
 	FileAttribute,
 	FileMode,
 	File,
+	RegularFile,
     },
+    
     data_types::CStr16,
     table::boot::{
 	MemoryType,
 	MemoryMap,
     },
 };
+use common::elf::load_elf;
 
 const KERNEL_PATH: &'static str = "\\efi\\boot\\kernel";
 
@@ -25,6 +28,22 @@ fn load_kernel(image_handle: Handle, boot_services: &BootServices) -> Result<Sta
     let mut buf = [0;64];
     let kernel = root_dir.open(CStr16::from_str_with_buf(KERNEL_PATH, &mut buf).unwrap(), FileMode::Read, FileAttribute::empty())?;
     info!("Hello, uefi!");
+    info!("Parsing kernel elf binary...");
+
+    let mut kernel = kernel.into_regular_file().expect("The kernel to be a regular file");
+    kernel.set_position(0).expect("Set position");
+    kernel.set_position(RegularFile::END_OF_FILE).expect("Set position to end");
+    let kernel_sz = kernel.get_position().expect("kernel size") as usize;
+
+    let kbuf = boot_services.allocate_pool(MemoryType::RESERVED, kernel_sz).expect("kernel buf alloc");
+    let kbuf = unsafe { core::slice::from_raw_parts_mut(kbuf, kernel_sz) };
+    kernel.set_position(0).expect("position at start");
+
+    let bytes_read = kernel.read(kbuf).expect("read kernel");
+    assert!(bytes_read == kernel_sz);
+
+    let _elf = load_elf(kbuf).expect("ELF");
+
     boot_services.stall(10_000_000);
     Ok(Status::SUCCESS)
 }

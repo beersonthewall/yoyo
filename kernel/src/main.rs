@@ -4,7 +4,8 @@
 use core::panic::PanicInfo;
 
 #[allow(dead_code)]
-fn kmain() -> !{
+#[no_mangle]
+pub extern "C" fn kmain() -> !{
     loop {}
 }
 

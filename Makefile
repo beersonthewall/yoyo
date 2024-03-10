@@ -25,4 +25,4 @@ yoyo.img: build
 	dd if=boot-part.img of=yoyo.img bs=512 count=91669 seek=2048 conv=notrunc
 
 run:
-	qemu-system-x86_64 -bios OVMF_CODE.fd -enable-kvm -cpu qemu64 -hda yoyo.img
+	qemu-system-x86_64 -bios OVMF_CODE.fd -enable-kvm -cpu qemu64 -drive file=yoyo.img,format=raw,index=0,media=disk

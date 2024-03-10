@@ -18,10 +18,14 @@ use uefi::{
 	MemoryMap,
     },
 };
-use common::elf::{load_elf, Elf};
+use common::{
+    elf::{load_elf, Elf},
+    memory::frame::FrameAllocator,
+};
 
 const KERNEL_PATH: &'static str = "\\efi\\boot\\kernel";
 
+/// Read the kernel binary from disk.
 fn load_kernel(image_handle: Handle, boot_services: &BootServices) -> Result<&'static mut [u8]> {
     let mut simple_fs_proto = boot_services.get_image_file_system(image_handle)?;
     let mut root_dir = simple_fs_proto.open_volume()?;
@@ -45,7 +49,7 @@ fn load_kernel(image_handle: Handle, boot_services: &BootServices) -> Result<&'s
     Ok(kbuf)
 }
 
-fn switch_to_kernel() -> ! {
+fn switch_to_kernel<'a>(_kernel_elf: Elf<'a>, _frame_alloc: FrameAllocator) -> ! {
     loop {}
 }
 
@@ -64,10 +68,13 @@ fn main(image_handle: Handle, mut system_table: SystemTable<Boot>) -> Status {
 
     let boot_services = system_table.boot_services();
     let kernel = load_kernel(image_handle, boot_services).expect("Kernel bytes from disk");
-    let _kernel_elf = load_elf(kernel).expect("Kernel is a valid ELF binary");
+    let kernel_elf = load_elf(kernel).expect("Kernel is a valid ELF binary");
 
     info!("exit boot services");
-    let (_system_table, mut _memory_map) = system_table.exit_boot_services(MemoryType::RESERVED);
+    let (_system_table, mut memory_map) = system_table.exit_boot_services(MemoryType::RESERVED);
+    memory_map.sort();
 
-    switch_to_kernel();
+    let frame_alloc = FrameAllocator::new(memory_map);
+
+    switch_to_kernel(kernel_elf, frame_alloc);
 }
